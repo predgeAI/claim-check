@@ -25,14 +25,19 @@ const LABEL: Record<Verdict["verdict"], string> = {
   "holds":         "holds",
 };
 
-// How many of the maintainer's written per-claim conclusions the tool agrees
-// with.  The baseline is suisuss review[6], which is the final round and
-// explicitly enumerates: six ordered checks with resource fifth (→ c06/c27
-// holds), shape gate with no coercion (→ c12/c13/c14/c15/c24 holds), 64 KiB
-// cap header-then-length (→ c04/c05/c28 holds), error attribution as listed
-// (→ c18/c19/c20/c29 holds).  That is 12 explicit written conclusions.
-// The tool agrees with all 12.
-const MAINTAINER_CONCLUSIONS = 12;
+// The maintainer's final review (suisuss, review[6]) says under "Does it match the
+// description": "six ordered checks with resource fifth, the shape gate with no
+// coercion, the 64 KiB cap checked by header and then by length, and the error
+// attribution as listed". That is FOUR written conclusions, not twelve. Each one
+// covers one or more of our claims; the mapping is explicit so the figure can be
+// audited rather than taken on trust. (An earlier version hard-coded "12/12",
+// which was neither the number of conclusions nor the number of claims covered.)
+const MAINTAINER_CONCLUSIONS: Record<string, string[]> = {
+  "six ordered checks with resource fifth": ["c06", "c27"],
+  "the shape gate with no coercion": ["c12", "c13", "c14", "c15", "c24"],
+  "the 64 KiB cap checked by header and then by length": ["c04", "c05", "c28"],
+  "the error attribution as listed": ["c18", "c19", "c20", "c29"],
+};
 
 function escMd(s: string): string {
   // Escape pipe so it doesn't break the table cell.
@@ -129,9 +134,22 @@ export function buildReport(
   parts.push(
     `**Claims found:** ${total} · ` +
     `**Verified with evidence:** ${withEvidence} · ` +
-    `**Wall-clock seconds:** ${wallClockSeconds.toFixed(1)} · ` +
-    `**Agrees with maintainer's written conclusions:** ${MAINTAINER_CONCLUSIONS}/${MAINTAINER_CONCLUSIONS}`,
+    `**Wall-clock:** ${mode.startsWith("replay") ? "not measured in replay" : wallClockSeconds.toFixed(1) + " s"}`,
   );
+  parts.push("");
+  {
+    const byId = new Map(results.map((r) => [r.id, r.verdict.verdict]));
+    const covered = [...new Set(Object.values(MAINTAINER_CONCLUSIONS).flat())];
+    const agree = covered.filter((id) => byId.get(id) === "holds").length;
+    const uncovered = results.filter((r) => !covered.includes(r.id));
+    const failingUncovered = uncovered.filter((r) => r.verdict.verdict === "does-not-hold").length;
+    parts.push(
+      `**Against the maintainer:** his final review names ${Object.keys(MAINTAINER_CONCLUSIONS).length} ` +
+      `conclusions, covering ${covered.length} of ${total} claims; the tool agrees on ${agree}/${covered.length}. ` +
+      `He did not address the other ${uncovered.length} individually` +
+      (failingUncovered ? `, and the ${failingUncovered === 1 ? "one failing claim is" : failingUncovered + " failing claims are"} among them.` : "."),
+    );
+  }
   parts.push("");
   parts.push(`**Verification mode:** ${mode}`);
   parts.push("");
