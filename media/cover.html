@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;width:1920px;height:1080px;background:#0E1014;color:#E9ECF1;font-family:"IBM Plex Sans",sans-serif;overflow:hidden;position:relative}
+.glow{position:absolute;right:-240px;top:-280px;width:900px;height:900px;border-radius:50%;background:radial-gradient(closest-side,rgba(242,169,59,.16),rgba(242,169,59,0));}
+.pad{position:absolute;inset:96px 120px}
+.top{display:flex;justify-content:space-between;align-items:center}
+.mark{display:flex;align-items:center;gap:16px;font-weight:600;font-size:34px;letter-spacing:-.01em}
+.mark i{width:44px;height:44px;border-radius:10px;background:#E9ECF1;display:grid;place-items:center}
+.tag{font:600 22px/1 "IBM Plex Mono",monospace;letter-spacing:.12em;text-transform:uppercase;color:#F2A93B;border:2px solid #6B4A14;padding:12px 18px;border-radius:8px}
+h1{font-size:136px;line-height:.98;letter-spacing:-.035em;font-weight:700;margin:92px 0 0;max-width:13ch;text-wrap:balance}
+.q{display:inline-flex;align-items:center;gap:18px;margin-top:52px;font:500 34px/1 "IBM Plex Mono",monospace;color:#A2A9B6;background:#161920;border:1px solid #262B34;border-left:5px solid #F2A93B;padding:22px 28px;border-radius:0 12px 12px 0}
+.hit{color:#F07167;text-decoration:line-through;text-decoration-thickness:4px;background:#2C1414;padding:4px 12px;border-radius:6px}
+.bar{position:absolute;left:0;right:0;bottom:0}
+.cells{display:grid;grid-template-columns:repeat(29,1fr);gap:9px}
+.c{height:74px;border-radius:5px;background:#5FC08A;opacity:.9}
+.c.x{background:#F07167;opacity:1;box-shadow:0 0 0 4px #0E1014,0 0 0 8px #F07167}
+.cap{display:flex;justify-content:space-between;margin-top:26px;font:500 28px/1 "IBM Plex Mono",monospace;color:#A2A9B6}
+.cap b{color:#E9ECF1;font-weight:600}
+.cap .r{color:#F07167}
+</style></head><body>
+<div class="glow"></div>
+<div class="pad">
+  <div class="top">
+    <div class="mark"><i><svg width="22" height="22" viewBox="0 0 12 12"><path d="M1.5 6.2 4.6 9.2 10.5 2.8" fill="none" stroke="#C97A06" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Claim Check</div>
+    <div class="tag">IBM Bob 2.0 Hackathon</div>
+  </div>
+  <h1>Does this PR do what it says?</h1>
+  <div class="q">behind an <span class="hit">always-on</span> SSRF check</div>
+  <div class="bar">
+    <div class="cells" id="cells"></div>
+    <div class="cap"><span><b>29</b> claims · one Bob subagent each</span><span class="r">1 false — 4 review rounds missed it</span></div>
+  </div>
+</div>
+<script>document.getElementById("cells").innerHTML=Array.from({length:29},(_,i)=>`<div class="c${i===1?" x":""}"></div>`).join("")</script>
+</body></html>

@@ -2,6 +2,8 @@
 
 **Does this pull request do what its description says?**
 
+**Live demo: [claim-check-five.vercel.app](https://claim-check-five.vercel.app)** · [deck (PDF)](media/claim-check-deck.pdf)
+
 Built for the IBM Bob 2.0 Hackathon, 25–27 September 2026.
 
 ---

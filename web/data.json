@@ -1,0 +1,417 @@
+{
+ "pr": {
+  "number": 2476,
+  "repo": "KeeperHub/keeperhub",
+  "title": "Add Predge plugin: verifiable smart-money signals (read + offline ed25519 verify)",
+  "files": 10,
+  "additions": 1752,
+  "reviews": 7,
+  "comments": 8,
+  "proseChars": 48551
+ },
+ "maintainerConclusions": [
+  "six ordered checks with resource fifth",
+  "the shape gate with no coercion",
+  "the 64 KiB cap checked by header and then by length",
+  "the error attribution as listed"
+ ],
+ "claims": [
+  {
+   "id": "c01",
+   "text": "The plugin fetches the signal via GET {PREDGE_SIGNAL_URL}/v1/signal/:wallet, defaulting to https://api.predge.io.",
+   "source": "description",
+   "quote": "GET {PREDGE_SIGNAL_URL}/v1/signal/:wallet (default `https://api.predge.io`, free, unauthenticated) through `safeFetch`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:271,704,721-726",
+   "reasoning": "DEFAULT_PREDGE_SIGNAL_URL is set to https://api.predge.io; resolveBaseUrl falls back to it when PREDGE_SIGNAL_URL is unset; fetchSignedSignal constructs the URL as /v1/signal/{wallet} and calls safeFetch with method GET.",
+   "maintainer": null,
+   "universal": false,
+   "live": {
+    "verdict": "holds",
+    "evidence": "plugins/predge/steps/predge-core.ts:271",
+    "checked": [
+     "corpus/pr-2476.diff:271",
+     "corpus/pr-2476.diff:703-704",
+     "corpus/pr-2476.diff:721-724"
+    ],
+    "secs": 10.8,
+    "cost": 0.11055399999999999
+   }
+  },
+  {
+   "id": "c02",
+   "text": "Every outbound request passes through assertUrlIsPublic as an always-on SSRF check.",
+   "source": "description",
+   "quote": "behind an always-on `assertUrlIsPublic` SSRF check",
+   "verdict": "does-not-hold",
+   "evidence": "corpus/pr-2476.diff:1031",
+   "reasoning": "The testPredge function in test.ts makes an outbound request using raw fetch() without calling assertUrlIsPublic, contradicting the claim that every outbound request passes through this SSRF check.",
+   "maintainer": null,
+   "universal": true,
+   "live": {
+    "verdict": "does-not-hold",
+    "evidence": "plugins/predge/test.ts:31",
+    "checked": [
+     "plugins/predge/steps/predge-core.ts:719 (fetchSignedSignal — assertUrlIsPublic called before safeFetch)",
+     "plugins/predge/steps/read-signal.ts (delegates to fetchSignedSignal, no direct outbound request)",
+     "plugins/predge/test.ts:31 (testPredge — calls raw fetch() directly with no assertUrlIsPublic check)",
+     "tests/unit/predge-read-signal.test.ts (mocks assertUrlIsPublic, not a production code path)"
+    ],
+    "secs": 15.1,
+    "cost": 0.185492
+   }
+  },
+  {
+   "id": "c03",
+   "text": "The fetch uses a 10-second AbortSignal.timeout.",
+   "source": "description",
+   "quote": "with a 10s `AbortSignal.timeout`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:291,725",
+   "reasoning": "FETCH_TIMEOUT_MS is defined as 10_000 ms; AbortSignal.timeout(FETCH_TIMEOUT_MS) is passed as the signal parameter to safeFetch.",
+   "maintainer": null,
+   "universal": false,
+   "live": {
+    "verdict": "holds",
+    "evidence": "corpus/pr-2476.diff:725",
+    "checked": [
+     "corpus/pr-2476.diff:291",
+     "corpus/pr-2476.diff:725"
+    ],
+    "secs": 11.4,
+    "cost": 0.110374
+   }
+  },
+  {
+   "id": "c04",
+   "text": "The response body is capped at 64 KiB, checked against content-length before the body is read.",
+   "source": "description",
+   "quote": "a 64 KiB cap on the body, checked against `content-length` before it is read",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:303,770-776",
+   "reasoning": "MAX_RESPONSE_BYTES = 64 * 1024; the content-length header is read and compared before response.text() is called, so an oversized declared body is rejected before it is materialised.",
+   "maintainer": "the 64 KiB cap checked by header and then by length",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c05",
+   "text": "The response body is also checked against the body length before it is parsed.",
+   "source": "description",
+   "quote": "against the body length before it is parsed",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:778-784",
+   "reasoning": "After response.text(), body.length is compared against MAX_RESPONSE_BYTES before JSON.parse(body), so the body length is checked before parsing.",
+   "maintainer": "the 64 KiB cap checked by header and then by length",
+   "universal": false,
+   "live": {
+    "verdict": "holds",
+    "evidence": "plugins/predge/steps/predge-core.ts:779",
+    "checked": [
+     "plugins/predge/steps/predge-core.ts:778",
+     "plugins/predge/steps/predge-core.ts:779",
+     "plugins/predge/steps/predge-core.ts:788"
+    ],
+    "secs": 16.2,
+    "cost": 0.110954
+   }
+  },
+  {
+   "id": "c06",
+   "text": "Attestation verification runs six ordered checks: scheme, signer, ed25519 signature, subject binding, resource binding, and freshness.",
+   "source": "description",
+   "quote": "Six ordered checks: scheme; signer pinned to Predge's published key … ed25519 signature over the canonical payload; subject binding … resource binding … and freshness",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:528-569",
+   "reasoning": "verifyPredgeSignal performs exactly six sequential checks: scheme, signer, ed25519 signature, subject binding, resource binding, and freshness, each gated by a return-on-fail.",
+   "maintainer": "six ordered checks with resource fifth",
+   "universal": false,
+   "live": {
+    "verdict": "holds",
+    "evidence": "corpus/pr-2476.diff:462",
+    "checked": [
+     "corpus/pr-2476.diff:462-476",
+     "corpus/pr-2476.diff:528-570"
+    ],
+    "secs": 10.6,
+    "cost": 0.11058000000000001
+   }
+  },
+  {
+   "id": "c07",
+   "text": "The signer is pinned to Predge's published key; the default pin is a source constant and PREDGE_SIGNER_KEY_ID can override it.",
+   "source": "description",
+   "quote": "signer pinned to Predge's published key (default is a source constant, `PREDGE_SIGNER_KEY_ID` overrides it, and the key the response carries is never trusted on its own)",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:281-282,515,947",
+   "reasoning": "DEFAULT_PINNED_SIGNER is a source constant; the pinned value is resolved as (input.expectedKeyId || DEFAULT_PINNED_SIGNER); read-signal.ts passes credentials.PREDGE_SIGNER_KEY_ID as expectedKeyId.",
+   "maintainer": null,
+   "universal": true,
+   "live": null
+  },
+  {
+   "id": "c08",
+   "text": "The key the response carries is never trusted on its own.",
+   "source": "description",
+   "quote": "the key the response carries is never trusted on its own",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:512-534",
+   "reasoning": "signer = raw.keyId is extracted but compared against the pinned constant rather than accepted directly; verification fails if they do not match.",
+   "maintainer": null,
+   "universal": true,
+   "live": null
+  },
+  {
+   "id": "c09",
+   "text": "Subject binding checks the attestation subject against the requested wallet.",
+   "source": "description",
+   "quote": "subject binding to the requested wallet",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:540-545",
+   "reasoning": "walletInPayload = raw.payload.wallet; subjectMatch = normalizeWallet(walletInPayload) === normalizeWallet(requestedWallet); fails with 'signal is about a different wallet' on mismatch.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c10",
+   "text": "Resource binding compares the signed resource field against conviction:<wallet>, so a different signed product about the same wallet under the same key is not accepted as a conviction signal.",
+   "source": "description",
+   "quote": "`resource` binding to `conviction:<wallet>`, so a different signed product about the same wallet under the same key is not read as a conviction signal",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:317,549-554",
+   "reasoning": "RESOURCE_PREFIX = 'conviction:'; expectedResource is built as conviction:<requestedWallet>; raw.resource is compared against it and fails if mismatched, blocking foreign signed products.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c11",
+   "text": "Freshness is checked: issuedAt must be within the max-age window (default 600 s, configurable via PREDGE_MAX_SIGNAL_AGE_SECONDS) with one minute of skew tolerance.",
+   "source": "description",
+   "quote": "freshness (`issuedAt` within a max-age window, default 600s, `PREDGE_MAX_SIGNAL_AGE_SECONDS` to tune, one minute of skew tolerance)",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:286,288,563-569,948",
+   "reasoning": "DEFAULT_MAX_SIGNAL_AGE_SECONDS = 600, MAX_CLOCK_SKEW_MS = 60_000; maxAgeSeconds is read from PREDGE_MAX_SIGNAL_AGE_SECONDS; ageMs is checked against both bounds.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c12",
+   "text": "conviction is checked to be a finite number in the range 0–100; a numeric string such as \"99999\" is a failure, not a valid value.",
+   "source": "description",
+   "quote": "`conviction` a finite number in 0-100 (a numeric string is a failure, not a number — `\"99999\" >= 80` coerces true in a template gate)",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:626-638",
+   "reasoning": "parseConvictionPayload checks typeof conviction !== 'number' || !Number.isFinite(conviction), which rejects the string '99999' at the typeof check, then enforces the 0–100 range.",
+   "maintainer": "the shape gate with no coercion",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c13",
+   "text": "action is checked to be one of accumulate, reduce, or hold.",
+   "source": "description",
+   "quote": "`action` one of `accumulate`/`reduce`/`hold`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:322,640-645",
+   "reasoning": "PREDGE_ACTIONS = ['accumulate','reduce','hold']; parseConvictionPayload checks PREDGE_ACTIONS.includes(raw.action) and fails with a descriptive reason if it is not one of those three.",
+   "maintainer": "the shape gate with no coercion",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c14",
+   "text": "window is checked to be one of 7d or 30d.",
+   "source": "description",
+   "quote": "`window` one of `7d`/`30d`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:323,646-651",
+   "reasoning": "PREDGE_WINDOWS = ['7d','30d']; parseConvictionPayload checks PREDGE_WINDOWS.includes(raw.window) and fails if the value is not in that set.",
+   "maintainer": "the shape gate with no coercion",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c15",
+   "text": "All three payload fields (conviction, action, window) are required; nothing is coerced.",
+   "source": "description",
+   "quote": "each required. Nothing is coerced.",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:626-651",
+   "reasoning": "All three fields are validated with strict type checks (no Number(), String() coercion); absent fields cause the typeof or includes checks to fail, making each field implicitly required.",
+   "maintainer": "the shape gate with no coercion",
+   "universal": true,
+   "live": null
+  },
+  {
+   "id": "c16",
+   "text": "The step fails on either the verification gate or the payload-shape gate, including the reason or the field with its received and expected types in the error.",
+   "source": "description",
+   "quote": "The step fails on either gate, with the reason, or the field and its received and expected types, in its error",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:955-975,580-596",
+   "reasoning": "Verification failure returns error with verification.reason; payload-shape failure returns error with parsed.reason built by describeValue() which includes the received type and value for each field.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c17",
+   "text": "There is no verified flag in the success output; the step cannot succeed without a verified signal.",
+   "source": "description",
+   "quote": "there is no `verified` flag to forget to gate on. Success outputs: `wallet`, `conviction`, `action`, `window`, `signer`, `issuedAt`, `ageSeconds`.",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:848-869,955-989",
+   "reasoning": "The success ReadSignalResult type contains wallet, conviction, action, window, signer, issuedAt, ageSeconds — no verified field — and success: true is only reached after the verification guard at line 955.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c18",
+   "text": "A 429 or a 5xx response is attributed as EXTERNAL.",
+   "source": "description",
+   "quote": "a 429 and a 5xx are `EXTERNAL`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:746-755,757-764",
+   "reasoning": "429 is explicitly handled with errorClass: EXTERNAL; the catch-all for non-ok responses uses status >= 500 ? EXTERNAL : USER, attributing all 5xx as EXTERNAL.",
+   "maintainer": "the error attribution as listed",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c19",
+   "text": "A 404, a 402, or an unparseable PREDGE_SIGNAL_URL is attributed as USER.",
+   "source": "description",
+   "quote": "a 404, a 402 and an unparseable `PREDGE_SIGNAL_URL` are `USER`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:710-715,729-744",
+   "reasoning": "Unparseable URL returns USER before assertUrlIsPublic is called; 404 and 402 status responses both return USER errorClass.",
+   "maintainer": "the error attribution as listed",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c20",
+   "text": "A body that is not a Predge response is attributed as EXTERNAL unless the operator repointed the host.",
+   "source": "description",
+   "quote": "a body that is not a Predge response is `EXTERNAL` unless the operator repointed the host",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:673-677",
+   "reasoning": "blameForBadBody returns USER when credentials.PREDGE_SIGNAL_URL is set (operator repointed host) and EXTERNAL otherwise; it is called for all bad-body cases.",
+   "maintainer": "the error attribution as listed",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c21",
+   "text": "The default pin is a source constant in predge-core.ts equal to the attestation-role key published at https://api.predge.io/.well-known/predge-keys.json.",
+   "source": "description",
+   "quote": "The default pin is a source constant in `predge-core.ts`, equal to the `attestation`-role key published at `https://api.predge.io/.well-known/predge-keys.json`.",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:281-282",
+   "reasoning": "DEFAULT_PINNED_SIGNER is a source constant in predge-core.ts; the comment links it to the attestation-role key at the published URL. The reviewer (suisuss, review[6]) independently confirmed the hex value is byte-identical to the live published key.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c22",
+   "text": "Nothing reads the keyset at run time.",
+   "source": "description",
+   "quote": "Nothing reads the keyset at run time",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:281-282,1031",
+   "reasoning": "predge-core.ts uses a hardcoded DEFAULT_PINNED_SIGNER for offline verification and never fetches the keyset; only testPredge in test.ts fetches /.well-known/predge-keys.json, and only for connection-test purposes.",
+   "maintainer": null,
+   "universal": true,
+   "live": null
+  },
+  {
+   "id": "c23",
+   "text": "PREDGE_SIGNER_KEY_ID lets an operator override the pinned key ahead of a rotation, as noted in credentials.ts.",
+   "source": "description",
+   "quote": "`PREDGE_SIGNER_KEY_ID` lets an operator move ahead of one, as noted in `credentials.ts`.",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:65-73",
+   "reasoning": "credentials.ts documents PREDGE_SIGNER_KEY_ID under a 'Rotation path' comment that explicitly says operators can set it to the new published key to move ahead of a plugin release.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c24",
+   "text": "parseConvictionPayload runs after verification in the step and fails unless conviction is a finite number in 0–100, action is one of accumulate/reduce/hold, and window is one of 7d/30d, with no coercion.",
+   "source": "review-comment",
+   "quote": "All three blocking items and the seven mechanical ones are in `62edf7b`, pushed on a rebase onto `staging`. Point by point.\n\n## Blocking\n\n**Payload shape.** You are right, and the four reproductions were reproducible here. The signature established who issued the bytes and that t",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:945-968,610-662",
+   "reasoning": "parseConvictionPayload is called only after verification.verified is true (line 968); it enforces conviction as finite number in 0–100, action in PREDGE_ACTIONS, window in PREDGE_WINDOWS, with no coercion.",
+   "maintainer": "the shape gate with no coercion",
+   "universal": true,
+   "live": null
+  },
+  {
+   "id": "c25",
+   "text": "parseMaxAgeSeconds honours the value 0 literally, so an operator setting 0 rejects every signal rather than silently falling back to the default.",
+   "source": "review-thread",
+   "quote": "`parseMaxAgeSeconds` now honours `0`",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:889-895,564",
+   "reasoning": "parseMaxAgeSeconds returns 0 when raw is '0' because '0'.trim() is truthy and Number('0')=0 passes the isFinite and >= 0 checks; maxAgeSeconds=0 means ageMs > 0 rejects every positive-age signal.",
+   "maintainer": null,
+   "universal": true,
+   "live": null
+  },
+  {
+   "id": "c26",
+   "text": "resource is declared on PredgeAttestation and covered by the signature.",
+   "source": "review-thread",
+   "quote": "`resource` is declared on `PredgeAttestation` (`predge-core.ts:58`) and covered by the signature",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:346,404-416,450",
+   "reasoning": "PredgeAttestation has resource: string; canonicalize serializes all Object.keys() of the attestation including resource; canonical bytes are what the signature is verified over.",
+   "maintainer": null,
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c27",
+   "text": "verifyPredgeSignal runs six ordered checks with resource binding fifth, between subject binding and freshness.",
+   "source": "review-thread",
+   "quote": "six ordered checks with `resource` fifth",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:528-569",
+   "reasoning": "Code order: scheme (528), signer (531), signature (536), subject binding (543), resource binding (550), freshness (564/567) — resource is exactly fifth.",
+   "maintainer": "six ordered checks with resource fifth",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c28",
+   "text": "The 64 KiB cap is enforced by content-length header first, then by the body length.",
+   "source": "review-thread",
+   "quote": "the 64 KiB cap checked by header and then by length",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:770-784",
+   "reasoning": "content-length header is read and checked against MAX_RESPONSE_BYTES before response.text(); body.length is checked after response.text() and before JSON.parse().",
+   "maintainer": "the 64 KiB cap checked by header and then by length",
+   "universal": false,
+   "live": null
+  },
+  {
+   "id": "c29",
+   "text": "Error attribution is conditional: failures on the default host are EXTERNAL; failures caused by operator-set PREDGE_SIGNER_KEY_ID or PREDGE_SIGNAL_URL are USER.",
+   "source": "review-thread",
+   "quote": "Blaming the operator only when they set `PREDGE_SIGNER_KEY_ID` or `PREDGE_SIGNAL_URL` … on the defaults those failures are the upstream's",
+   "verdict": "holds",
+   "evidence": "corpus/pr-2476.diff:909-921,673-677",
+   "reasoning": "classifyVerificationFailure returns USER only when the operator set PREDGE_SIGNER_KEY_ID or PREDGE_SIGNAL_URL (via blameForBadBody); all other verification failures default to EXTERNAL.",
+   "maintainer": "the error attribution as listed",
+   "universal": true,
+   "live": null
+  }
+ ]
+}

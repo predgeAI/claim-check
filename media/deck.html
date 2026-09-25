@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Claim Check — deck</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F3F4F6;--sheet:#FFFFFF;--ink:#13161C;--muted:#5B6270;--faint:#8A919E;--line:#DCE0E7;--ls:#C3C9D3;
+--amber:#C97A06;--amber-soft:#FFF3DF;--fail:#B8322A;--fail-soft:#FCEBEA;--pass:#2B7349;--pass-soft:#E8F4EC;--unk:#5D63A8;--unk-soft:#EEEFF9;--code:#F6F7F9;
+--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@page{size:1920px 1080px;margin:0}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--sans);color:var(--ink);background:var(--paper)}
+.s{width:1920px;height:1080px;padding:96px 120px;position:relative;page-break-after:always;overflow:hidden;background:var(--paper)}
+.s:last-child{page-break-after:auto}
+.eye{font:500 22px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--amber)}
+h1{text-wrap:balance;font-size:104px;line-height:1.02;letter-spacing:-.03em;margin:28px 0 0;font-weight:600;max-width:15ch}
+h2{text-wrap:balance;font-size:66px;line-height:1.08;letter-spacing:-.025em;margin:24px 0 0;font-weight:600;max-width:22ch}
+p.big{font-size:32px;line-height:1.45;color:var(--muted);max-width:52ch;margin:34px 0 0}
+p.big b{color:var(--ink);font-weight:600}
+.foot{position:absolute;left:120px;right:120px;bottom:56px;display:flex;justify-content:space-between;font:500 18px/1 var(--mono);color:var(--faint)}
+.mark{display:inline-flex;align-items:center;gap:14px;font:600 26px/1 var(--sans);color:var(--ink)}
+.mark i{width:34px;height:34px;border-radius:8px;background:var(--ink);display:grid;place-items:center}
+code,.mono{font-family:var(--mono)}
+.quote{margin:44px 0 0;padding:28px 34px;background:var(--sheet);border:1px solid var(--line);border-left:5px solid var(--amber);border-radius:0 12px 12px 0;max-width:1400px}
+.quote .who{font:500 19px/1 var(--mono);color:var(--faint);margin-bottom:16px}
+.quote p{margin:0;font-size:36px;line-height:1.4}
+.hit{background:var(--fail-soft);color:var(--fail);padding:2px 10px;border-radius:5px;font-weight:600;text-decoration:line-through;text-decoration-thickness:3px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin-top:56px;border:1px solid var(--line);border-radius:16px;background:var(--sheet);overflow:hidden}
+.stat{padding:40px 44px;border-right:1px solid var(--line)} .stat:last-child{border-right:0}
+.stat b{display:block;font:600 112px/1 var(--sans);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:26px;color:var(--muted);margin-top:16px}
+.fail{color:var(--fail)} .pass{color:var(--pass)}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:64px}
+.step{background:var(--sheet);border:1px solid var(--line);border-radius:14px;padding:34px 30px;min-height:330px}
+.step .n{font:600 22px/1 var(--mono);color:var(--amber)}
+.step h3{font-size:34px;letter-spacing:-.015em;margin:22px 0 14px;font-weight:600}
+.step p{font-size:24px;line-height:1.45;color:var(--muted);margin:0}
+.map{margin-top:56px;display:grid;grid-template-columns:420px 1fr;border:1px solid var(--line);border-radius:14px;background:var(--sheet);overflow:hidden}
+.map div{padding:26px 34px;border-bottom:1px solid var(--line);font-size:28px;line-height:1.35}
+.map div:nth-last-child(-n+2){border-bottom:0}
+.map div:nth-child(odd){font-weight:600;background:#FAFAFB;border-right:1px solid var(--line)}
+.two{display:grid;grid-template-columns:1.05fr 1fr;gap:40px;margin-top:52px;align-items:start}
+.card{background:var(--sheet);border:1px solid var(--line);border-radius:14px;padding:34px 36px}
+.stamp{display:inline-flex;align-items:center;gap:10px;font:600 20px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:10px 14px;border-radius:6px;border:2px solid currentColor}
+.stamp.dnh{color:var(--fail);background:var(--fail-soft)} .stamp.ct{color:var(--unk);background:var(--unk-soft)} .stamp.holds{color:var(--pass);background:var(--pass-soft)}
+.card .cl{font-size:32px;line-height:1.4;margin:26px 0 0;font-weight:500}
+.card dl{display:grid;grid-template-columns:max-content 1fr;gap:14px 26px;margin:28px 0 0;font-size:24px}
+.card dt{font:500 19px/1.6 var(--mono);color:var(--faint);text-transform:uppercase}
+.card dd{margin:0}
+pre{margin:0;background:var(--code);border:1px solid var(--line);border-radius:14px;padding:30px;font:24px/1.75 var(--mono);white-space:pre;overflow:hidden}
+.ln{color:var(--faint);display:inline-block;width:3.2em}
+.bad{background:var(--fail-soft);display:block;margin:0 -30px;padding:0 30px;border-left:4px solid var(--fail)}
+.cap{font:22px/1.5 var(--mono);color:var(--faint);margin:20px 0 0}
+.grid29{display:grid;grid-template-columns:repeat(29,1fr);gap:10px;margin-top:64px}
+.cell{height:150px;border-radius:6px;background:var(--ls)} .cell.cov{background:var(--pass)} .cell.dnh{background:var(--fail);box-shadow:0 0 0 4px var(--paper),0 0 0 8px var(--fail)}
+.legend{display:flex;gap:44px;margin-top:34px;font-size:26px;color:var(--muted)} .legend span{display:inline-flex;align-items:center;gap:14px} .legend i{width:22px;height:22px;border-radius:4px;display:inline-block}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:52px}
+.duo h3{font-size:36px;margin:24px 0 14px;letter-spacing:-.015em}
+.duo p{font-size:25px;line-height:1.5;color:var(--muted);margin:0 0 14px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:10px 22px;font-size:24px;margin-top:22px}
+.kv span:nth-child(odd){font:20px/1.7 var(--mono);color:var(--faint)}
+.biz{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:60px}
+.biz .card b{display:block;font:600 64px/1 var(--sans);letter-spacing:-.02em}
+.biz .card span{display:block;font-size:26px;color:var(--muted);margin-top:18px;line-height:1.4}
+.note{font:22px/1.5 var(--mono);color:var(--faint);margin-top:40px;max-width:1500px}
+.links{display:grid;grid-template-columns:260px 1fr;gap:20px 30px;margin-top:60px;font-size:34px}
+.links span{font:500 22px/1.9 var(--mono);color:var(--faint);text-transform:uppercase}
+</style></head><body>
+
+<!-- 1 -->
+<div class="s">
+  <div class="mark"><i><svg width="18" height="18" viewBox="0 0 12 12"><path d="M1.5 6.2 4.6 9.2 10.5 2.8" fill="none" stroke="#F2A93B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Claim Check</div>
+  <div class="eye" style="margin-top:96px">IBM Bob 2.0 Hackathon · team Predge</div>
+  <h1>Does this pull request do what it says?</h1>
+  <p class="big">Every falsifiable claim in a PR, verified by <b>its own IBM Bob subagent</b>, in parallel — with the line of code that settles it.</p>
+  <div class="foot"><span>claim-check-five.vercel.app</span><span>github.com/predgeAI/claim-check</span></div>
+</div>
+
+<!-- 2 problem -->
+<div class="s">
+  <div class="eye">The problem</div>
+  <h2>The half of code review nobody budgets for</h2>
+  <p class="big">Reading the diff is the visible half. The other half is checking that <b>every claim the author made is true in the code</b>. Under load, reviewers skip it. Here is a senior maintainer doing it by hand, this month:</p>
+  <div class="quote"><div class="who">KeeperHub PR #2476 · final review</div>
+    <p>“I compared each file at <code>b957594</code> against <code>62edf7b</code>… Does it match the description: Matches. Every behavioural claim in the body holds.”</p></div>
+  <div class="foot"><span>10 files · +1,752 lines · 4 review rounds · 44,718 characters of review prose</span><span>2</span></div>
+</div>
+
+<!-- 3 what -->
+<div class="s">
+  <div class="eye">What it does</div>
+  <h2>Turn prose into claims, then check every one at once</h2>
+  <div class="steps">
+    <div class="step"><div class="n">01</div><h3>Extract</h3><p>Read the description and the review thread. Keep only claims a reader could falsify; drop intent, opinion and future tense.</p></div>
+    <div class="step"><div class="n">02</div><h3>Fan out</h3><p>One Bob subagent per claim, running in parallel, each with full repository context and none seeing the others.</p></div>
+    <div class="step"><div class="n">03</div><h3>Verify</h3><p>Each returns holds, does not hold or cannot tell — and the file:line that settles it. Cannot tell is never dressed up as holds.</p></div>
+    <div class="step"><div class="n">04</div><h3>Report</h3><p>A ledger ordered by what should stop a merge: failures first, unchecked next, passes folded away.</p></div>
+  </div>
+  <div class="foot"><span>Application of technology</span><span>3</span></div>
+</div>
+
+<!-- 4 bob -->
+<div class="s">
+  <div class="eye">Why it needs IBM Bob 2.0</div>
+  <h2>Each Bob capability carries a different part of the work</h2>
+  <div class="map">
+    <div>Document understanding</div><div>The claims live in prose — a PR body and a review thread — not in a list.</div>
+    <div>Full repository context</div><div>The evidence for one claim is spread across files and survives a rebase.</div>
+    <div>Subagents</div><div>One per claim, isolated: a hard claim stalls only itself, and no verdict biases another.</div>
+    <div>Parallel tasks</div><div>N independent searches at once — the difference between once-per-PR and every push.</div>
+  </div>
+  <p class="note">Built inside Bob IDE across five sessions. The prompts are in the repository in the order they ran; nothing in src/ was written by hand.</p>
+  <div class="foot"><span>Application of technology</span><span>4</span></div>
+</div>
+
+<!-- 5 result -->
+<div class="s">
+  <div class="eye">The result on PR #2476</div>
+  <h2>Twenty-nine claims. One of them was false.</h2>
+  <div class="stats">
+    <div class="stat"><b>29</b><span>claims extracted</span></div>
+    <div class="stat"><b class="pass">28</b><span>hold, with file:line</span></div>
+    <div class="stat"><b class="fail">1</b><span>does not hold</span></div>
+    <div class="stat"><b>0</b><span>left unchecked</span></div>
+  </div>
+  <div class="quote" style="margin-top:56px"><div class="who">the sentence that failed · PR description</div>
+    <p>“…fetched through <code>safeFetch</code> behind an <span class="hit">always-on</span> <code>assertUrlIsPublic</code> SSRF check…”</p></div>
+  <div class="foot"><span>Presentation</span><span>5</span></div>
+</div>
+
+<!-- 6 finding -->
+<div class="s">
+  <div class="eye">The finding</div>
+  <h2>The Test button skipped the guard the description promised</h2>
+  <div class="two">
+    <div class="card">
+      <span class="stamp dnh">✕ does not hold</span>
+      <p class="cl">Every outbound request passes through <code>assertUrlIsPublic</code> as an always-on SSRF check.</p>
+      <dl><dt>evidence</dt><dd class="mono">plugins/predge/test.ts:31</dd>
+          <dt>impact</dt><dd>The connection test fetched any URL the operator typed and reported its HTTP status — a probe of private hosts.</dd>
+          <dt>status</dt><dd>Fixed with six tests, and disclosed in the PR thread by us, the same night.</dd></dl>
+    </div>
+    <div>
+<pre><span class="ln">1025</span>const rawUrl =
+<span class="ln">1026</span>  credentials.PREDGE_SIGNAL_URL?.trim() || DEFAULT_…
+<span class="ln">1027</span>const baseUrl = stripTrailingSlashes(rawUrl);
+<span class="ln">1028</span>
+<span class="ln">1029</span>// Read-only: the published keyset confirms the …
+<span class="ln">1030</span>// and is serving Predge signing keys.
+<span class="bad"><span class="ln">1031</span>const response = await fetch(`${baseUrl}/.well-known/…</span><span class="ln">1032</span>  method: "GET",</pre>
+      <p class="cap">No assertUrlIsPublic. No safeFetch. We wrote this code.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Business value · a real defect in a real public PR</span><span>6</span></div>
+</div>
+
+<!-- 7 reviewer -->
+<div class="s">
+  <div class="eye">Against the reviewer</div>
+  <h2>The human pass was thorough — and partial</h2>
+  <p class="big">The final review names <b>four conclusions</b>. They cover <b>14 of the 29 claims</b>, and the tool agrees on all 14. The other 15 were never addressed one by one — and the failing claim is among them.</p>
+  <div class="grid29" id="g"></div>
+  <div class="legend"><span><i style="background:var(--pass)"></i>covered by a reviewer conclusion · 14</span><span><i style="background:var(--ls)"></i>not addressed individually · 15</span><span><i style="background:var(--fail)"></i>does not hold</span></div>
+  <div class="foot"><span>Business value</span><span>7</span></div>
+</div>
+
+<!-- 8 limits -->
+<div class="s">
+  <div class="eye">Where it breaks</div>
+  <h2>We tried to break our own tool. It broke twice.</h2>
+  <div class="duo">
+    <div class="card"><span class="stamp ct">false holds</span>
+      <h3>A cheaper verifier missed the same bug</h3>
+      <p>Run on the diff alone to save budget, a subagent found the guarded path, stopped, and said <b>holds</b>.</p>
+      <p>“Every request is guarded” is universal: one example cannot confirm it, only a counterexample refutes it. Universal claims now must search every call site and list what they checked.</p>
+      <div class="kv"><span>live c02</span><span>does not hold · test.ts:31</span><span>checked</span><span>4 locations · 15.1 s</span></div></div>
+    <div class="card"><span class="stamp ct">out of reach</span>
+      <h3>It only checks what someone claimed</h3>
+      <p>The worst defect we know of here — two canonicalisation functions that disagree on <code>undefined</code> keys — appears in no sentence of the PR.</p>
+      <p>No claim, so no subagent looked. A boundary of the method, not a bug in Bob — and the same reason four review rounds walked past it.</p></div>
+  </div>
+  <div class="foot"><span>Originality</span><span>8</span></div>
+</div>
+
+<!-- 9 value -->
+<div class="s">
+  <div class="eye">Business value</div>
+  <h2>Cheap enough to run on every push</h2>
+  <div class="biz">
+    <div class="card"><b>10–15 s</b><span>per claim, measured on live Bob Shell runs</span></div>
+    <div class="card"><b>0.07–0.19</b><span>Bobcoins per claim, measured</span></div>
+    <div class="card"><b>15 of 29</b><span>claims the human review never checked individually</span></div>
+  </div>
+  <p class="big">A reviewer’s attention goes to the one claim that fails and the ones nobody could check — not to re-reading twenty-eight that hold.</p>
+  <p class="note">Measured on five live runs, including the failing claim. The full 29-claim live batch did not complete: the 40-Bobcoin allowance ran out, mostly on one long IDE session. The demo replays the verdicts Bob’s subagents produced.</p>
+  <div class="foot"><span>Business value</span><span>9</span></div>
+</div>
+
+<!-- 10 close -->
+<div class="s">
+  <div class="mark"><i><svg width="18" height="18" viewBox="0 0 12 12"><path d="M1.5 6.2 4.6 9.2 10.5 2.8" fill="none" stroke="#F2A93B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Claim Check</div>
+  <h2 style="margin-top:80px">Every claim, checked — and the ones nobody can check, named.</h2>
+  <div class="links">
+    <span>live demo</span><span>claim-check-five.vercel.app</span>
+    <span>code</span><span>github.com/predgeAI/claim-check</span>
+    <span>the PR</span><span>github.com/KeeperHub/keeperhub/pull/2476</span>
+    <span>the fix</span><span>predge-ai/keeperhub · 903c661</span>
+  </div>
+  <div class="foot"><span>team Predge · IBM Bob 2.0 Hackathon</span><span>10</span></div>
+</div>
+
+<script>
+const cov=["c04","c05","c06","c12","c13","c14","c15","c18","c19","c20","c24","c27","c28","c29"];
+document.getElementById("g").innerHTML=Array.from({length:29},(_,i)=>{const id="c"+String(i+1).padStart(2,"0");return `<div class="cell ${id==="c02"?"dnh":cov.includes(id)?"cov":""}"></div>`}).join("");
+</script>
+</body></html>

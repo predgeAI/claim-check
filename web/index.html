@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claim Check — does this PR do what it says?</title>
+<meta name="description" content="Claim Check splits a pull request into every falsifiable claim and verifies each one with its own IBM Bob subagent. On KeeperHub PR #2476 it found an SSRF gap four rounds of review missed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3F4F6; --sheet:#FFFFFF; --ink:#13161C; --muted:#5B6270; --faint:#8A919E;
+  --line:#DCE0E7; --line-strong:#C3C9D3;
+  --amber:#C97A06; --amber-soft:#FFF3DF; --amber-line:#F1C37A;
+  --fail:#B8322A; --fail-soft:#FCEBEA; --pass:#2B7349; --pass-soft:#E8F4EC;
+  --unk:#5D63A8; --unk-soft:#EEEFF9;
+  --code:#F6F7F9; --focus:#C97A06;
+  --sans:"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#0E1014; --sheet:#161920; --ink:#E9ECF1; --muted:#A2A9B6; --faint:#727A88;
+  --line:#262B34; --line-strong:#353B46;
+  --amber:#F2A93B; --amber-soft:#2A1F0D; --amber-line:#6B4A14;
+  --fail:#F07167; --fail-soft:#2C1414; --pass:#5FC08A; --pass-soft:#11261A;
+  --unk:#9CA2E8; --unk-soft:#1A1C33; --code:#11141A; --focus:#F2A93B;
+}}
+:root[data-theme="dark"]{
+  --paper:#0E1014; --sheet:#161920; --ink:#E9ECF1; --muted:#A2A9B6; --faint:#727A88;
+  --line:#262B34; --line-strong:#353B46;
+  --amber:#F2A93B; --amber-soft:#2A1F0D; --amber-line:#6B4A14;
+  --fail:#F07167; --fail-soft:#2C1414; --pass:#5FC08A; --pass-soft:#11261A;
+  --unk:#9CA2E8; --unk-soft:#1A1C33; --code:#11141A; --focus:#F2A93B;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 var(--sans);font-feature-settings:"ss02"}
+a{color:inherit;text-decoration-color:var(--amber-line);text-underline-offset:3px}
+a:hover{text-decoration-color:var(--amber)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+code,.mono{font-family:var(--mono);font-size:.9em}
+
+/* top bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em}
+.mark{width:22px;height:22px;border-radius:5px;background:var(--ink);display:grid;place-items:center}
+.mark svg{display:block}
+.top nav{display:flex;gap:18px;font-size:14px;color:var(--muted)}
+.top nav a{text-decoration:none}
+.top nav a:hover{color:var(--ink)}
+
+/* hero */
+.hero{padding:64px 0 40px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--amber)}
+h1{font-size:clamp(34px,5vw,54px);line-height:1.05;letter-spacing:-.025em;margin:16px 0 22px;font-weight:600;text-wrap:balance;max-width:18ch}
+.quote{margin:0 0 26px;padding:18px 22px;background:var(--sheet);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:0 8px 8px 0;max-width:780px}
+.quote .who{font:500 12px/1 var(--mono);color:var(--faint);margin-bottom:10px}
+.quote p{margin:0;font-size:17px;line-height:1.55}
+.hit{background:var(--fail-soft);color:var(--fail);padding:1px 5px;border-radius:3px;font-weight:600;text-decoration:line-through;text-decoration-thickness:2px}
+.lede{font-size:19px;line-height:1.55;color:var(--muted);max-width:62ch;margin:0}
+.lede strong{color:var(--ink);font-weight:600}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:36px 0 0;border:1px solid var(--line);border-radius:10px;background:var(--sheet);overflow:hidden}
+.stat{padding:18px 20px;border-right:1px solid var(--line)}
+.stat:last-child{border-right:0}
+.stat b{display:block;font:600 34px/1 var(--sans);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:13px;color:var(--muted);margin-top:8px}
+.stat.fail b{color:var(--fail)} .stat.pass b{color:var(--pass)}
+.corpus{font:13px/1.5 var(--mono);color:var(--faint);margin-top:12px}
+
+/* sections */
+section{padding:56px 0;border-top:1px solid var(--line)}
+h2{font-size:28px;letter-spacing:-.02em;margin:10px 0 14px;font-weight:600;text-wrap:balance;max-width:24ch}
+.sub{color:var(--muted);max-width:64ch;margin:0 0 28px}
+
+/* finding */
+.finding{display:grid;grid-template-columns:1.1fr 1fr;gap:22px;align-items:start}
+.finding>*,.duo>*,.conc>*{min-width:0}
+.claimline code,dl.meta dd{overflow-wrap:anywhere}
+.card{background:var(--sheet);border:1px solid var(--line);border-radius:10px;padding:22px}
+.stamp{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:6px 9px;border-radius:4px;border:1.5px solid currentColor;white-space:nowrap}
+.stamp.dnh{color:var(--fail);background:var(--fail-soft)}
+.stamp.holds{color:var(--pass);background:var(--pass-soft)}
+.stamp.ct{color:var(--unk);background:var(--unk-soft)}
+.claimline{font-size:18px;line-height:1.5;margin:14px 0 16px;font-weight:500}
+dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;margin:0;font-size:14px}
+dl.meta dt{color:var(--faint);font:500 12px/1.9 var(--mono);text-transform:uppercase;letter-spacing:.05em}
+dl.meta dd{margin:0}
+pre{margin:0;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:16px;overflow-x:auto;font:13px/1.7 var(--mono)}
+.ln{color:var(--faint);user-select:none;display:inline-block;width:2.4em}
+.bad{background:var(--fail-soft);display:block;margin:0 -16px;padding:0 16px;border-left:2px solid var(--fail)}
+.cap{font:12px/1.5 var(--mono);color:var(--faint);margin:10px 0 0}
+.trail{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.pill{display:inline-flex;align-items:center;gap:8px;font:500 13px/1 var(--sans);padding:9px 12px;border:1px solid var(--line-strong);border-radius:999px;text-decoration:none;background:var(--sheet)}
+.pill:hover{border-color:var(--amber)}
+.pill i{font-style:normal;color:var(--amber)}
+
+/* ledger */
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.chip{font:500 13px/1 var(--sans);padding:8px 12px;border-radius:999px;border:1px solid var(--line-strong);background:var(--sheet);color:var(--muted);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
+.chip .n{font-family:var(--mono);opacity:.7;margin-left:4px}
+.search{flex:1;min-width:200px;font:14px var(--sans);padding:9px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--sheet);color:var(--ink)}
+.ledger{background:var(--sheet);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.row{border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row>button{all:unset;box-sizing:border-box;width:100%;display:grid;grid-template-columns:52px 1fr auto;gap:14px;align-items:center;padding:13px 18px;cursor:pointer}
+.row>button:hover{background:var(--paper)}
+.row>button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.row.is-dnh>button{background:var(--fail-soft)}
+.cid{font:600 13px/1 var(--mono);color:var(--faint)}
+.ctext{font-size:15px;line-height:1.45}
+.flags{display:inline-flex;gap:6px;margin-left:8px;vertical-align:1px}
+.flag{font:500 10.5px/1 var(--mono);padding:3px 6px;border-radius:3px;border:1px solid var(--line-strong);color:var(--muted);letter-spacing:.02em}
+.flag.u{border-color:var(--amber-line);color:var(--amber)}
+.detail{display:none;padding:4px 18px 20px 84px}
+.row.open .detail{display:block}
+.detail dl.meta{font-size:14px}
+.detail blockquote{margin:0;padding:0 0 0 12px;border-left:2px solid var(--line-strong);color:var(--muted);font-style:italic}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+
+/* coverage */
+.grid29{display:grid;grid-template-columns:repeat(29,1fr);gap:4px;margin:26px 0 12px}
+.cell{aspect-ratio:1/2.2;border-radius:3px;background:var(--line);position:relative}
+.cell.cov{background:var(--pass)}
+.cell.unc{background:var(--line-strong)}
+.cell.dnh{background:var(--fail);box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--fail)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{width:11px;height:11px;border-radius:2px;display:inline-block}
+.conc{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:26px}
+.conc .card{padding:16px 18px}
+.conc q{display:block;font-size:15px;margin-bottom:8px}
+.conc .ids{font:12px/1.5 var(--mono);color:var(--faint)}
+
+/* two-col prose */
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.duo .card h3{font-size:18px;margin:12px 0 8px;letter-spacing:-.01em}
+.duo .card p{margin:0 0 10px;color:var(--muted);font-size:15px}
+.duo .card p:last-child{margin:0}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:14px;margin-top:12px}
+.kv span:nth-child(odd){color:var(--faint);font:12px/1.8 var(--mono)}
+
+footer{padding:40px 0 56px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+footer .row2{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px}
+.theme{all:unset;cursor:pointer;font:13px var(--mono);color:var(--muted);border:1px solid var(--line-strong);padding:6px 10px;border-radius:6px}
+
+@media (max-width:820px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stat:nth-child(2){border-right:0}
+  .stat:nth-child(-n+2){border-bottom:1px solid var(--line)}
+  .finding,.duo,.conc{grid-template-columns:1fr}
+  .top nav{display:none}
+  .row>button{grid-template-columns:40px 1fr;}
+  .row>button .stamp{grid-column:2;justify-self:start}
+  .detail{padding-left:18px}
+  .grid29{gap:2px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M1.5 6.2 4.6 9.2 10.5 2.8" fill="none" stroke="#F2A93B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      Claim Check
+    </div>
+    <nav aria-label="Sections"><a href="#finding">The finding</a><a href="#ledger">All 29 claims</a><a href="#maintainer">Against the reviewer</a><a href="#limits">Where it breaks</a></nav>
+  </header>
+
+  <div class="hero">
+    <div class="eyebrow">IBM Bob 2.0 Hackathon · built inside Bob IDE</div>
+    <h1>Four rounds of review read this sentence. It was false.</h1>
+    <figure class="quote">
+      <div class="who">KeeperHub PR #2476 — the pull request description</div>
+      <p>“…fetched through <code>safeFetch</code> behind an <span class="hit">always-on</span> <code>assertUrlIsPublic</code> SSRF check…”</p>
+    </figure>
+    <p class="lede">Claim Check splits a pull request’s description and review thread into every claim a reader could falsify, then gives each claim to <strong>its own IBM Bob subagent</strong>, all running in parallel. Each one comes back with a verdict and the line of code that settles it. On this PR, <strong>one of 29 came back false</strong> — and it was the one the reviewers had signed off on.</p>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b id="s-total">29</b><span>claims extracted</span></div>
+      <div class="stat pass" role="listitem"><b id="s-holds">28</b><span>hold, with file:line</span></div>
+      <div class="stat fail" role="listitem"><b id="s-dnh">1</b><span>does not hold</span></div>
+      <div class="stat" role="listitem"><b id="s-ct">0</b><span>left unchecked</span></div>
+    </div>
+    <div class="corpus">corpus: 10 files · +1,752 lines · 7 reviews · 44,718 characters of review prose · frozen at the commit that was reviewed</div>
+  </div>
+
+  <section id="finding">
+    <div class="eyebrow">The finding</div>
+    <h2>The connection test skipped the guard the description promised</h2>
+    <p class="sub">The signal path does call <code>assertUrlIsPublic</code>. The Test button in the credentials dialog did not: it called the raw <code>fetch</code> on a URL the operator types, and reported the HTTP status back — a probe of any host the operator can name, including private ranges.</p>
+    <div class="finding">
+      <div class="card">
+        <span class="stamp dnh">✕ does not hold</span>
+        <p class="claimline">Every outbound request passes through <code>assertUrlIsPublic</code> as an always-on SSRF check.</p>
+        <dl class="meta">
+          <dt>claim</dt><dd class="mono">c02 · universal (“every”)</dd>
+          <dt>source</dt><dd>PR description, verbatim</dd>
+          <dt>evidence</dt><dd><a class="mono" href="https://github.com/predgeAI/claim-check/blob/main/corpus/pr-2476.diff#L1031">pr-2476.diff:1031</a> → <span class="mono">plugins/predge/test.ts:31</span></dd>
+          <dt>reviewers</dt><dd>Four rounds. The final pass says “every behavioural claim in the body holds”.</dd>
+        </dl>
+        <div class="trail">
+          <a class="pill" href="https://github.com/KeeperHub/keeperhub/pull/2476"><i>↗</i> The PR</a>
+          <a class="pill" href="https://github.com/KeeperHub/keeperhub/pull/2476#issuecomment-5840211321"><i>↗</i> Our disclosure</a>
+          <a class="pill" href="https://github.com/predge-ai/keeperhub/commit/903c66121"><i>↗</i> The fix, 903c661</a>
+        </div>
+      </div>
+      <div>
+<pre aria-label="Code at the evidence line"><span class="ln">1025</span>    const rawUrl =
+<span class="ln">1026</span>      credentials.PREDGE_SIGNAL_URL?.trim() || DEFAULT_PREDGE_SIGNAL_URL;
+<span class="ln">1027</span>    const baseUrl = stripTrailingSlashes(rawUrl);
+<span class="ln">1028</span>
+<span class="ln">1029</span>    // Read-only: the published keyset confirms the signal service is reachable
+<span class="ln">1030</span>    // and is serving Predge signing keys.
+<span class="bad"><span class="ln">1031</span>    const response = await fetch(`${baseUrl}/.well-known/predge-keys.json`, {</span><span class="ln">1032</span>      method: "GET",
+<span class="ln">1033</span>      headers: { Accept: "application/json" },
+<span class="ln">1034</span>    });</pre>
+        <p class="cap">No assertUrlIsPublic, no safeFetch. The URL comes straight from operator credentials. We wrote this code, fixed it the same night with six tests, and disclosed it in the PR thread ourselves.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="ledger">
+    <div class="eyebrow">The ledger</div>
+    <h2>All 29 claims, and the code that settles each</h2>
+    <p class="sub">Open any row for the author’s original words, the subagent’s reasoning, and — where we re-ran it live through Bob Shell — the live result. Evidence links open the exact line of the captured diff.</p>
+    <div class="controls" role="group" aria-label="Filter claims">
+      <button class="chip" data-f="all" aria-pressed="true">All<span class="n" data-c="all"></span></button>
+      <button class="chip" data-f="does-not-hold" aria-pressed="false">Does not hold<span class="n" data-c="does-not-hold"></span></button>
+      <button class="chip" data-f="holds" aria-pressed="false">Holds<span class="n" data-c="holds"></span></button>
+      <button class="chip" data-f="universal" aria-pressed="false">Universal claims<span class="n" data-c="universal"></span></button>
+      <button class="chip" data-f="maintainer" aria-pressed="false">Reviewer covered<span class="n" data-c="maintainer"></span></button>
+      <button class="chip" data-f="live" aria-pressed="false">Re-run live<span class="n" data-c="live"></span></button>
+      <input class="search" type="search" placeholder="Search claims, quotes, files…" aria-label="Search claims">
+    </div>
+    <div class="ledger" id="rows"></div>
+  </section>
+
+  <section id="maintainer">
+    <div class="eyebrow">Against the reviewer</div>
+    <h2>The human pass was thorough, and partial</h2>
+    <p class="sub">The maintainer’s final review names four conclusions under “Does it match the description”. Those four cover 14 of the 29 claims, and the tool agrees with him on all 14. He did not address the other 15 one by one — and the failing claim is among them.</p>
+    <div class="grid29" id="grid" aria-label="29 claims: covered by the reviewer, not covered, and the failing claim"></div>
+    <div class="legend">
+      <span><i style="background:var(--pass)"></i>covered by a reviewer conclusion · tool agrees (14)</span>
+      <span><i style="background:var(--line-strong)"></i>not addressed individually (15)</span>
+      <span><i style="background:var(--fail)"></i>the claim that does not hold</span>
+    </div>
+    <div class="conc" id="conc"></div>
+  </section>
+
+  <section id="limits">
+    <div class="eyebrow">Where it breaks</div>
+    <h2>Two limits we found by trying to break our own tool</h2>
+    <div class="duo">
+      <div class="card">
+        <span class="stamp ct">false holds</span>
+        <h3>A cheaper verifier missed the same bug</h3>
+        <p>To save budget, one build of the live executor ran each subagent on the diff alone. It returned <strong>holds</strong> for c02: it found the guarded path, and stopped.</p>
+        <p>“Every request is guarded” is a universal claim. One example cannot confirm it; only a counterexample can refute it. Universal claims now get a different instruction: search every call site, list what was checked, and answer <em>cannot tell</em> if coverage isn’t proven. With that rule the live run finds the bug again.</p>
+        <div class="kv"><span>live c02</span><span>does not hold · test.ts:31</span><span>checked</span><span>4 locations</span><span>time</span><span>15.1 s</span></div>
+      </div>
+      <div class="card">
+        <span class="stamp ct">out of reach</span>
+        <h3>It only checks what someone claimed</h3>
+        <p>The worst defect we know of in this codebase is a mismatch between two canonicalisation functions: the signer drops <code>undefined</code> keys, the verifier does not. Identical bytes today; incompatible the day a field becomes optional.</p>
+        <p>No sentence in the PR says anything about it, so no claim was extracted and no subagent looked. That is a boundary of the method, not a bug in Bob — and it is the same reason four rounds of review walked past it.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="row2">
+      <div>Built inside <strong>IBM Bob IDE</strong> across five sessions; the prompts are in the repository in the order they ran. Demo data is the stored run, replayed — the verdicts are the ones Bob’s subagents produced.</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <a href="https://github.com/predgeAI/claim-check">github.com/predgeAI/claim-check</a>
+        <button class="theme" id="theme" aria-label="Toggle colour theme">◐ theme</button>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+const DATA = {"pr": {"number": 2476, "repo": "KeeperHub/keeperhub", "title": "Add Predge plugin: verifiable smart-money signals (read + offline ed25519 verify)", "files": 10, "additions": 1752, "reviews": 7, "comments": 8, "proseChars": 48551}, "maintainerConclusions": ["six ordered checks with resource fifth", "the shape gate with no coercion", "the 64 KiB cap checked by header and then by length", "the error attribution as listed"], "claims": [{"id": "c01", "text": "The plugin fetches the signal via GET {PREDGE_SIGNAL_URL}/v1/signal/:wallet, defaulting to https://api.predge.io.", "source": "description", "quote": "GET {PREDGE_SIGNAL_URL}/v1/signal/:wallet (default `https://api.predge.io`, free, unauthenticated) through `safeFetch`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:271,704,721-726", "reasoning": "DEFAULT_PREDGE_SIGNAL_URL is set to https://api.predge.io; resolveBaseUrl falls back to it when PREDGE_SIGNAL_URL is unset; fetchSignedSignal constructs the URL as /v1/signal/{wallet} and calls safeFetch with method GET.", "maintainer": null, "universal": false, "live": {"verdict": "holds", "evidence": "plugins/predge/steps/predge-core.ts:271", "checked": ["corpus/pr-2476.diff:271", "corpus/pr-2476.diff:703-704", "corpus/pr-2476.diff:721-724"], "secs": 10.8, "cost": 0.11055399999999999}}, {"id": "c02", "text": "Every outbound request passes through assertUrlIsPublic as an always-on SSRF check.", "source": "description", "quote": "behind an always-on `assertUrlIsPublic` SSRF check", "verdict": "does-not-hold", "evidence": "corpus/pr-2476.diff:1031", "reasoning": "The testPredge function in test.ts makes an outbound request using raw fetch() without calling assertUrlIsPublic, contradicting the claim that every outbound request passes through this SSRF check.", "maintainer": null, "universal": true, "live": {"verdict": "does-not-hold", "evidence": "plugins/predge/test.ts:31", "checked": ["plugins/predge/steps/predge-core.ts:719 (fetchSignedSignal — assertUrlIsPublic called before safeFetch)", "plugins/predge/steps/read-signal.ts (delegates to fetchSignedSignal, no direct outbound request)", "plugins/predge/test.ts:31 (testPredge — calls raw fetch() directly with no assertUrlIsPublic check)", "tests/unit/predge-read-signal.test.ts (mocks assertUrlIsPublic, not a production code path)"], "secs": 15.1, "cost": 0.185492}}, {"id": "c03", "text": "The fetch uses a 10-second AbortSignal.timeout.", "source": "description", "quote": "with a 10s `AbortSignal.timeout`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:291,725", "reasoning": "FETCH_TIMEOUT_MS is defined as 10_000 ms; AbortSignal.timeout(FETCH_TIMEOUT_MS) is passed as the signal parameter to safeFetch.", "maintainer": null, "universal": false, "live": {"verdict": "holds", "evidence": "corpus/pr-2476.diff:725", "checked": ["corpus/pr-2476.diff:291", "corpus/pr-2476.diff:725"], "secs": 11.4, "cost": 0.110374}}, {"id": "c04", "text": "The response body is capped at 64 KiB, checked against content-length before the body is read.", "source": "description", "quote": "a 64 KiB cap on the body, checked against `content-length` before it is read", "verdict": "holds", "evidence": "corpus/pr-2476.diff:303,770-776", "reasoning": "MAX_RESPONSE_BYTES = 64 * 1024; the content-length header is read and compared before response.text() is called, so an oversized declared body is rejected before it is materialised.", "maintainer": "the 64 KiB cap checked by header and then by length", "universal": false, "live": null}, {"id": "c05", "text": "The response body is also checked against the body length before it is parsed.", "source": "description", "quote": "against the body length before it is parsed", "verdict": "holds", "evidence": "corpus/pr-2476.diff:778-784", "reasoning": "After response.text(), body.length is compared against MAX_RESPONSE_BYTES before JSON.parse(body), so the body length is checked before parsing.", "maintainer": "the 64 KiB cap checked by header and then by length", "universal": false, "live": {"verdict": "holds", "evidence": "plugins/predge/steps/predge-core.ts:779", "checked": ["plugins/predge/steps/predge-core.ts:778", "plugins/predge/steps/predge-core.ts:779", "plugins/predge/steps/predge-core.ts:788"], "secs": 16.2, "cost": 0.110954}}, {"id": "c06", "text": "Attestation verification runs six ordered checks: scheme, signer, ed25519 signature, subject binding, resource binding, and freshness.", "source": "description", "quote": "Six ordered checks: scheme; signer pinned to Predge's published key … ed25519 signature over the canonical payload; subject binding … resource binding … and freshness", "verdict": "holds", "evidence": "corpus/pr-2476.diff:528-569", "reasoning": "verifyPredgeSignal performs exactly six sequential checks: scheme, signer, ed25519 signature, subject binding, resource binding, and freshness, each gated by a return-on-fail.", "maintainer": "six ordered checks with resource fifth", "universal": false, "live": {"verdict": "holds", "evidence": "corpus/pr-2476.diff:462", "checked": ["corpus/pr-2476.diff:462-476", "corpus/pr-2476.diff:528-570"], "secs": 10.6, "cost": 0.11058000000000001}}, {"id": "c07", "text": "The signer is pinned to Predge's published key; the default pin is a source constant and PREDGE_SIGNER_KEY_ID can override it.", "source": "description", "quote": "signer pinned to Predge's published key (default is a source constant, `PREDGE_SIGNER_KEY_ID` overrides it, and the key the response carries is never trusted on its own)", "verdict": "holds", "evidence": "corpus/pr-2476.diff:281-282,515,947", "reasoning": "DEFAULT_PINNED_SIGNER is a source constant; the pinned value is resolved as (input.expectedKeyId || DEFAULT_PINNED_SIGNER); read-signal.ts passes credentials.PREDGE_SIGNER_KEY_ID as expectedKeyId.", "maintainer": null, "universal": true, "live": null}, {"id": "c08", "text": "The key the response carries is never trusted on its own.", "source": "description", "quote": "the key the response carries is never trusted on its own", "verdict": "holds", "evidence": "corpus/pr-2476.diff:512-534", "reasoning": "signer = raw.keyId is extracted but compared against the pinned constant rather than accepted directly; verification fails if they do not match.", "maintainer": null, "universal": true, "live": null}, {"id": "c09", "text": "Subject binding checks the attestation subject against the requested wallet.", "source": "description", "quote": "subject binding to the requested wallet", "verdict": "holds", "evidence": "corpus/pr-2476.diff:540-545", "reasoning": "walletInPayload = raw.payload.wallet; subjectMatch = normalizeWallet(walletInPayload) === normalizeWallet(requestedWallet); fails with 'signal is about a different wallet' on mismatch.", "maintainer": null, "universal": false, "live": null}, {"id": "c10", "text": "Resource binding compares the signed resource field against conviction:<wallet>, so a different signed product about the same wallet under the same key is not accepted as a conviction signal.", "source": "description", "quote": "`resource` binding to `conviction:<wallet>`, so a different signed product about the same wallet under the same key is not read as a conviction signal", "verdict": "holds", "evidence": "corpus/pr-2476.diff:317,549-554", "reasoning": "RESOURCE_PREFIX = 'conviction:'; expectedResource is built as conviction:<requestedWallet>; raw.resource is compared against it and fails if mismatched, blocking foreign signed products.", "maintainer": null, "universal": false, "live": null}, {"id": "c11", "text": "Freshness is checked: issuedAt must be within the max-age window (default 600 s, configurable via PREDGE_MAX_SIGNAL_AGE_SECONDS) with one minute of skew tolerance.", "source": "description", "quote": "freshness (`issuedAt` within a max-age window, default 600s, `PREDGE_MAX_SIGNAL_AGE_SECONDS` to tune, one minute of skew tolerance)", "verdict": "holds", "evidence": "corpus/pr-2476.diff:286,288,563-569,948", "reasoning": "DEFAULT_MAX_SIGNAL_AGE_SECONDS = 600, MAX_CLOCK_SKEW_MS = 60_000; maxAgeSeconds is read from PREDGE_MAX_SIGNAL_AGE_SECONDS; ageMs is checked against both bounds.", "maintainer": null, "universal": false, "live": null}, {"id": "c12", "text": "conviction is checked to be a finite number in the range 0–100; a numeric string such as \"99999\" is a failure, not a valid value.", "source": "description", "quote": "`conviction` a finite number in 0-100 (a numeric string is a failure, not a number — `\"99999\" >= 80` coerces true in a template gate)", "verdict": "holds", "evidence": "corpus/pr-2476.diff:626-638", "reasoning": "parseConvictionPayload checks typeof conviction !== 'number' || !Number.isFinite(conviction), which rejects the string '99999' at the typeof check, then enforces the 0–100 range.", "maintainer": "the shape gate with no coercion", "universal": false, "live": null}, {"id": "c13", "text": "action is checked to be one of accumulate, reduce, or hold.", "source": "description", "quote": "`action` one of `accumulate`/`reduce`/`hold`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:322,640-645", "reasoning": "PREDGE_ACTIONS = ['accumulate','reduce','hold']; parseConvictionPayload checks PREDGE_ACTIONS.includes(raw.action) and fails with a descriptive reason if it is not one of those three.", "maintainer": "the shape gate with no coercion", "universal": false, "live": null}, {"id": "c14", "text": "window is checked to be one of 7d or 30d.", "source": "description", "quote": "`window` one of `7d`/`30d`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:323,646-651", "reasoning": "PREDGE_WINDOWS = ['7d','30d']; parseConvictionPayload checks PREDGE_WINDOWS.includes(raw.window) and fails if the value is not in that set.", "maintainer": "the shape gate with no coercion", "universal": false, "live": null}, {"id": "c15", "text": "All three payload fields (conviction, action, window) are required; nothing is coerced.", "source": "description", "quote": "each required. Nothing is coerced.", "verdict": "holds", "evidence": "corpus/pr-2476.diff:626-651", "reasoning": "All three fields are validated with strict type checks (no Number(), String() coercion); absent fields cause the typeof or includes checks to fail, making each field implicitly required.", "maintainer": "the shape gate with no coercion", "universal": true, "live": null}, {"id": "c16", "text": "The step fails on either the verification gate or the payload-shape gate, including the reason or the field with its received and expected types in the error.", "source": "description", "quote": "The step fails on either gate, with the reason, or the field and its received and expected types, in its error", "verdict": "holds", "evidence": "corpus/pr-2476.diff:955-975,580-596", "reasoning": "Verification failure returns error with verification.reason; payload-shape failure returns error with parsed.reason built by describeValue() which includes the received type and value for each field.", "maintainer": null, "universal": false, "live": null}, {"id": "c17", "text": "There is no verified flag in the success output; the step cannot succeed without a verified signal.", "source": "description", "quote": "there is no `verified` flag to forget to gate on. Success outputs: `wallet`, `conviction`, `action`, `window`, `signer`, `issuedAt`, `ageSeconds`.", "verdict": "holds", "evidence": "corpus/pr-2476.diff:848-869,955-989", "reasoning": "The success ReadSignalResult type contains wallet, conviction, action, window, signer, issuedAt, ageSeconds — no verified field — and success: true is only reached after the verification guard at line 955.", "maintainer": null, "universal": false, "live": null}, {"id": "c18", "text": "A 429 or a 5xx response is attributed as EXTERNAL.", "source": "description", "quote": "a 429 and a 5xx are `EXTERNAL`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:746-755,757-764", "reasoning": "429 is explicitly handled with errorClass: EXTERNAL; the catch-all for non-ok responses uses status >= 500 ? EXTERNAL : USER, attributing all 5xx as EXTERNAL.", "maintainer": "the error attribution as listed", "universal": false, "live": null}, {"id": "c19", "text": "A 404, a 402, or an unparseable PREDGE_SIGNAL_URL is attributed as USER.", "source": "description", "quote": "a 404, a 402 and an unparseable `PREDGE_SIGNAL_URL` are `USER`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:710-715,729-744", "reasoning": "Unparseable URL returns USER before assertUrlIsPublic is called; 404 and 402 status responses both return USER errorClass.", "maintainer": "the error attribution as listed", "universal": false, "live": null}, {"id": "c20", "text": "A body that is not a Predge response is attributed as EXTERNAL unless the operator repointed the host.", "source": "description", "quote": "a body that is not a Predge response is `EXTERNAL` unless the operator repointed the host", "verdict": "holds", "evidence": "corpus/pr-2476.diff:673-677", "reasoning": "blameForBadBody returns USER when credentials.PREDGE_SIGNAL_URL is set (operator repointed host) and EXTERNAL otherwise; it is called for all bad-body cases.", "maintainer": "the error attribution as listed", "universal": false, "live": null}, {"id": "c21", "text": "The default pin is a source constant in predge-core.ts equal to the attestation-role key published at https://api.predge.io/.well-known/predge-keys.json.", "source": "description", "quote": "The default pin is a source constant in `predge-core.ts`, equal to the `attestation`-role key published at `https://api.predge.io/.well-known/predge-keys.json`.", "verdict": "holds", "evidence": "corpus/pr-2476.diff:281-282", "reasoning": "DEFAULT_PINNED_SIGNER is a source constant in predge-core.ts; the comment links it to the attestation-role key at the published URL. The reviewer (suisuss, review[6]) independently confirmed the hex value is byte-identical to the live published key.", "maintainer": null, "universal": false, "live": null}, {"id": "c22", "text": "Nothing reads the keyset at run time.", "source": "description", "quote": "Nothing reads the keyset at run time", "verdict": "holds", "evidence": "corpus/pr-2476.diff:281-282,1031", "reasoning": "predge-core.ts uses a hardcoded DEFAULT_PINNED_SIGNER for offline verification and never fetches the keyset; only testPredge in test.ts fetches /.well-known/predge-keys.json, and only for connection-test purposes.", "maintainer": null, "universal": true, "live": null}, {"id": "c23", "text": "PREDGE_SIGNER_KEY_ID lets an operator override the pinned key ahead of a rotation, as noted in credentials.ts.", "source": "description", "quote": "`PREDGE_SIGNER_KEY_ID` lets an operator move ahead of one, as noted in `credentials.ts`.", "verdict": "holds", "evidence": "corpus/pr-2476.diff:65-73", "reasoning": "credentials.ts documents PREDGE_SIGNER_KEY_ID under a 'Rotation path' comment that explicitly says operators can set it to the new published key to move ahead of a plugin release.", "maintainer": null, "universal": false, "live": null}, {"id": "c24", "text": "parseConvictionPayload runs after verification in the step and fails unless conviction is a finite number in 0–100, action is one of accumulate/reduce/hold, and window is one of 7d/30d, with no coercion.", "source": "review-comment", "quote": "All three blocking items and the seven mechanical ones are in `62edf7b`, pushed on a rebase onto `staging`. Point by point.\n\n## Blocking\n\n**Payload shape.** You are right, and the four reproductions were reproducible here. The signature established who issued the bytes and that t", "verdict": "holds", "evidence": "corpus/pr-2476.diff:945-968,610-662", "reasoning": "parseConvictionPayload is called only after verification.verified is true (line 968); it enforces conviction as finite number in 0–100, action in PREDGE_ACTIONS, window in PREDGE_WINDOWS, with no coercion.", "maintainer": "the shape gate with no coercion", "universal": true, "live": null}, {"id": "c25", "text": "parseMaxAgeSeconds honours the value 0 literally, so an operator setting 0 rejects every signal rather than silently falling back to the default.", "source": "review-thread", "quote": "`parseMaxAgeSeconds` now honours `0`", "verdict": "holds", "evidence": "corpus/pr-2476.diff:889-895,564", "reasoning": "parseMaxAgeSeconds returns 0 when raw is '0' because '0'.trim() is truthy and Number('0')=0 passes the isFinite and >= 0 checks; maxAgeSeconds=0 means ageMs > 0 rejects every positive-age signal.", "maintainer": null, "universal": true, "live": null}, {"id": "c26", "text": "resource is declared on PredgeAttestation and covered by the signature.", "source": "review-thread", "quote": "`resource` is declared on `PredgeAttestation` (`predge-core.ts:58`) and covered by the signature", "verdict": "holds", "evidence": "corpus/pr-2476.diff:346,404-416,450", "reasoning": "PredgeAttestation has resource: string; canonicalize serializes all Object.keys() of the attestation including resource; canonical bytes are what the signature is verified over.", "maintainer": null, "universal": false, "live": null}, {"id": "c27", "text": "verifyPredgeSignal runs six ordered checks with resource binding fifth, between subject binding and freshness.", "source": "review-thread", "quote": "six ordered checks with `resource` fifth", "verdict": "holds", "evidence": "corpus/pr-2476.diff:528-569", "reasoning": "Code order: scheme (528), signer (531), signature (536), subject binding (543), resource binding (550), freshness (564/567) — resource is exactly fifth.", "maintainer": "six ordered checks with resource fifth", "universal": false, "live": null}, {"id": "c28", "text": "The 64 KiB cap is enforced by content-length header first, then by the body length.", "source": "review-thread", "quote": "the 64 KiB cap checked by header and then by length", "verdict": "holds", "evidence": "corpus/pr-2476.diff:770-784", "reasoning": "content-length header is read and checked against MAX_RESPONSE_BYTES before response.text(); body.length is checked after response.text() and before JSON.parse().", "maintainer": "the 64 KiB cap checked by header and then by length", "universal": false, "live": null}, {"id": "c29", "text": "Error attribution is conditional: failures on the default host are EXTERNAL; failures caused by operator-set PREDGE_SIGNER_KEY_ID or PREDGE_SIGNAL_URL are USER.", "source": "review-thread", "quote": "Blaming the operator only when they set `PREDGE_SIGNER_KEY_ID` or `PREDGE_SIGNAL_URL` … on the defaults those failures are the upstream's", "verdict": "holds", "evidence": "corpus/pr-2476.diff:909-921,673-677", "reasoning": "classifyVerificationFailure returns USER only when the operator set PREDGE_SIGNER_KEY_ID or PREDGE_SIGNAL_URL (via blameForBadBody); all other verification failures default to EXTERNAL.", "maintainer": "the error attribution as listed", "universal": true, "live": null}]};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const REPO = "https://github.com/predgeAI/claim-check/blob/main/";
+function evLinks(ev){
+  if(!ev) return "—";
+  const m = ev.match(/^([^:]+):(.+)$/); if(!m) return esc(ev);
+  const file = m[1], parts = m[2].split(",").map(s=>s.trim()).filter(Boolean);
+  return parts.map(p => { const first = p.split("-")[0]; return `<a class="mono" href="${REPO}${esc(file)}#L${esc(first)}">${esc(file.split("/").pop())}:${esc(p)}</a>`; }).join(", ");
+}
+const STAMP = {"holds":["holds","✓ holds"],"does-not-hold":["dnh","✕ does not hold"],"cannot-tell":["ct","? cannot tell"]};
+const claims = DATA.claims;
+const counts = {all:claims.length, "does-not-hold":0, holds:0, universal:0, maintainer:0, live:0};
+claims.forEach(c=>{ counts[c.verdict]=(counts[c.verdict]||0)+1; if(c.universal)counts.universal++; if(c.maintainer)counts.maintainer++; if(c.live)counts.live++; });
+document.querySelectorAll("[data-c]").forEach(el=>el.textContent=counts[el.dataset.c]??0);
+const order = {"does-not-hold":0,"cannot-tell":1,"holds":2};
+const sorted = [...claims].sort((a,b)=>order[a.verdict]-order[b.verdict] || a.id.localeCompare(b.id));
+const rowsEl = document.getElementById("rows");
+function render(filter, q){
+  q = (q||"").toLowerCase().trim();
+  const list = sorted.filter(c => {
+    if(filter==="universal" && !c.universal) return false;
+    if(filter==="maintainer" && !c.maintainer) return false;
+    if(filter==="live" && !c.live) return false;
+    if(["holds","does-not-hold","cannot-tell"].includes(filter) && c.verdict!==filter) return false;
+    if(q && !(c.text+" "+c.quote+" "+c.evidence+" "+c.id).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  if(!list.length){ rowsEl.innerHTML = '<div class="empty">No claims match.</div>'; return; }
+  rowsEl.innerHTML = list.map(c => {
+    const [cls,label] = STAMP[c.verdict];
+    const flags = (c.universal?'<span class="flag u">universal</span>':'') + (c.maintainer?'<span class="flag">reviewer</span>':'') + (c.live?'<span class="flag">live</span>':'');
+    const live = c.live ? `<dt>live re-run</dt><dd><span class="mono">${esc(c.live.verdict)}</span> · ${c.live.secs}s${c.live.checked&&c.live.checked.length?` · checked ${c.live.checked.length} locations`:""}</dd>` : "";
+    return `<div class="row ${c.verdict==="does-not-hold"?"is-dnh":""}" id="${esc(c.id)}">
+      <button aria-expanded="false" aria-controls="d-${esc(c.id)}"><span class="cid">${esc(c.id)}</span><span class="ctext">${esc(c.text)}${flags?`<span class="flags">${flags}</span>`:""}</span><span class="stamp ${cls}">${label}</span></button>
+      <div class="detail" id="d-${esc(c.id)}"><dl class="meta">
+        <dt>original</dt><dd><blockquote>${esc(c.quote)}</blockquote></dd>
+        <dt>source</dt><dd>${esc(c.source.replace("-"," "))}</dd>
+        <dt>evidence</dt><dd>${evLinks(c.evidence)}</dd>
+        <dt>reasoning</dt><dd>${esc(c.reasoning)}</dd>
+        ${c.maintainer?`<dt>reviewer</dt><dd>covered by “${esc(c.maintainer)}”</dd>`:""}
+        ${live}
+      </dl></div></div>`;
+  }).join("");
+  rowsEl.querySelectorAll(".row>button").forEach(b=>b.addEventListener("click",()=>{ const r=b.parentElement; const o=r.classList.toggle("open"); b.setAttribute("aria-expanded",o); }));
+}
+let F="all", Q="";
+document.querySelectorAll(".chip").forEach(ch=>ch.addEventListener("click",()=>{ document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed","false")); ch.setAttribute("aria-pressed","true"); F=ch.dataset.f; render(F,Q); }));
+document.querySelector(".search").addEventListener("input",e=>{ Q=e.target.value; render(F,Q); });
+render(F,Q);
+if(location.hash==="#c02"){ const r=document.getElementById("c02"); if(r){ r.classList.add("open"); r.scrollIntoView(); } }
+
+// coverage grid
+const grid = document.getElementById("grid");
+grid.innerHTML = [...claims].sort((a,b)=>a.id.localeCompare(b.id)).map(c=>{
+  const cls = c.verdict==="does-not-hold"?"dnh":(c.maintainer?"cov":"unc");
+  return `<a class="cell ${cls}" href="#${esc(c.id)}" title="${esc(c.id)} — ${esc(c.text)}" aria-label="${esc(c.id)}"></a>`;
+}).join("");
+grid.querySelectorAll("a").forEach(a=>a.addEventListener("click",e=>{ const id=a.getAttribute("href").slice(1); F="all";Q=""; document.querySelector(".search").value=""; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",x.dataset.f==="all"?"true":"false")); render(F,Q); setTimeout(()=>{const r=document.getElementById(id); if(r){r.classList.add("open"); r.querySelector("button").setAttribute("aria-expanded","true");}},0); }));
+document.getElementById("conc").innerHTML = DATA.maintainerConclusions.map(k=>{
+  const ids = claims.filter(c=>c.maintainer===k).map(c=>c.id);
+  return `<div class="card"><q>${esc(k)}</q><div class="ids">${ids.join(" · ")} — tool agrees on ${ids.length}/${ids.length}</div></div>`;
+}).join("");
+
+// theme toggle, persisted per viewer
+const root=document.documentElement;
+try{ const t=localStorage.getItem("cc-theme"); if(t) root.dataset.theme=t; }catch(e){}
+document.getElementById("theme").addEventListener("click",()=>{
+  const dark = root.dataset.theme ? root.dataset.theme==="dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+  try{ localStorage.setItem("cc-theme", root.dataset.theme); }catch(e){}
+});
+</script>
+</body>
+</html>
