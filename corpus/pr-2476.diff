@@ -1,0 +1,1843 @@
+diff --git a/lib/types/integration.ts b/lib/types/integration.ts
+index dc92ccd48..ab9e9beab 100755
+--- a/lib/types/integration.ts
++++ b/lib/types/integration.ts
+@@ -9,7 +9,7 @@
+  * 2. Add a system integration to SYSTEM_INTEGRATION_TYPES in discover-plugins.ts
+  * 3. Run: pnpm discover-plugins
+  *
+- * Generated types: aave-v3, aave-v4, aerodrome, ajna, blockscout, chainlink, chronicle, clerk, code, coinbase-cbeth, compound, cowswap, curve, data, database, discord, elizaos, ethena, euler-v2, evm-chain, frax-ether-v2, hyperliquid, layerzero, lido, linear, math, morpho, pagerduty, pendle, protocol, pyth, renzo, resend, robinhood, rocket-pool, safe, sendgrid, sky, slack, spark, superfluid, telegram, tempo, uniswap, v0, web3, webflow, webhook, wrapped, yearn
++ * Generated types: aave-v3, aave-v4, aerodrome, ajna, blockscout, chainlink, chronicle, clerk, code, coinbase-cbeth, compound, cowswap, curve, data, database, discord, elizaos, ethena, euler-v2, evm-chain, frax-ether-v2, hyperliquid, layerzero, lido, linear, math, morpho, pagerduty, pendle, predge, protocol, pyth, renzo, resend, robinhood, rocket-pool, safe, sendgrid, sky, slack, spark, superfluid, telegram, tempo, uniswap, v0, web3, webflow, webhook, wrapped, yearn
+  */
+ 
+ // Integration type union - plugins + system integrations
+@@ -43,6 +43,7 @@ export type IntegrationType =
+   | "morpho"
+   | "pagerduty"
+   | "pendle"
++  | "predge"
+   | "protocol"
+   | "pyth"
+   | "renzo"
+diff --git a/plugins/index.ts b/plugins/index.ts
+index b54581104..536a0cfac 100644
+--- a/plugins/index.ts
++++ b/plugins/index.ts
+@@ -13,7 +13,7 @@
+  * 1. Delete the plugin directory
+  * 2. Run: pnpm discover-plugins (or it runs automatically on build)
+  *
+- * Discovered plugins: blockscout, code, data, discord, elizaos, evm-chain, hyperliquid, math, pagerduty, protocol, robinhood, safe, sendgrid, slack, telegram, tempo, web3, webhook
++ * Discovered plugins: blockscout, code, data, discord, elizaos, evm-chain, hyperliquid, math, pagerduty, predge, protocol, robinhood, safe, sendgrid, slack, telegram, tempo, web3, webhook
+  */
+ 
+ import "./blockscout";
+@@ -25,6 +25,7 @@ import "./evm-chain";
+ import "./hyperliquid";
+ import "./math";
+ import "./pagerduty";
++import "./predge";
+ import "./protocol";
+ import "./robinhood";
+ import "./safe";
+diff --git a/plugins/plugin-allowlist.json b/plugins/plugin-allowlist.json
+index 3a9f0be87..a21a8692d 100644
+--- a/plugins/plugin-allowlist.json
++++ b/plugins/plugin-allowlist.json
+@@ -11,6 +11,7 @@
+     "hyperliquid",
+     "math",
+     "pagerduty",
++    "predge",
+     "protocol",
+     "robinhood",
+     "safe",
+diff --git a/plugins/predge/credentials.ts b/plugins/predge/credentials.ts
+new file mode 100644
+index 000000000..7b33ca9d7
+--- /dev/null
++++ b/plugins/predge/credentials.ts
+@@ -0,0 +1,18 @@
++export type PredgeCredentials = {
++  // Base URL of the Predge signal service. Defaults to the hosted endpoint;
++  // override to point at your own Predge deployment or a local dev service.
++  PREDGE_SIGNAL_URL?: string;
++  // Optional hex ed25519 public key to pin. Overrides Predge's published
++  // default key, so a workflow can trust its own deployment's signer. The key
++  // the response carries is never trusted on its own.
++  //
++  // Rotation path: the default pin is a source constant, so the day Predge
++  // rotates its signing key, default-configured workflows fail closed
++  // ("signer is not the pinned Predge key") until a new plugin version ships
++  // the new constant. Set this to the new published key to move ahead of that
++  // release; an unset connection has to wait for it.
++  PREDGE_SIGNER_KEY_ID?: string;
++  // Optional. Reject an attestation issued more than this many seconds ago.
++  // Defaults to 600. Raise it only if your signer's clock lags.
++  PREDGE_MAX_SIGNAL_AGE_SECONDS?: string;
++};
+diff --git a/plugins/predge/icon.tsx b/plugins/predge/icon.tsx
+new file mode 100644
+index 000000000..9680080e1
+--- /dev/null
++++ b/plugins/predge/icon.tsx
+@@ -0,0 +1,32 @@
++export function PredgeIcon({
++  className,
++  style,
++}: {
++  className?: string;
++  style?: React.CSSProperties;
++}) {
++  return (
++    <svg
++      aria-label="Predge"
++      className={className}
++      fill="none"
++      role="img"
++      style={style}
++      viewBox="0 0 24 24"
++      xmlns="http://www.w3.org/2000/svg"
++    >
++      <title>Predge</title>
++      <path
++        d="M12 2 4 5.5v6c0 4.6 3.2 8.4 8 10.5 4.8-2.1 8-5.9 8-10.5v-6L12 2Z"
++        fill="#f5a623"
++      />
++      <path
++        d="m8.5 12 2.4 2.4L15.8 9.5"
++        stroke="#0b0f14"
++        strokeLinecap="round"
++        strokeLinejoin="round"
++        strokeWidth="2"
++      />
++    </svg>
++  );
++}
+diff --git a/plugins/predge/index.ts b/plugins/predge/index.ts
+new file mode 100644
+index 000000000..9f19fe329
+--- /dev/null
++++ b/plugins/predge/index.ts
+@@ -0,0 +1,119 @@
++import type { ActionConfigField, IntegrationPlugin } from "@/plugins/registry";
++import { registerIntegration } from "@/plugins/registry-core";
++import { PredgeIcon } from "./icon";
++
++// Wallet whose Predge signal to read. Shared verbatim by address-scoped actions.
++const walletField = (): ActionConfigField => ({
++  key: "wallet",
++  label: "Wallet",
++  type: "template-input",
++  placeholder: "0x... or {{NodeName.address}}",
++  // Only verified smart-money wallets carry a signal, and conviction is a
++  // percentile within a set Predge re-ranks, so membership is not permanent:
++  // this address was ranked when it was captured and may 404 now. It is an
++  // address-shaped example, not a guarantee of a live 200 -- the help text
++  // below says so, because `example` also feeds AI workflow generation.
++  example: "0x0224bb9eb0a5c9fd261ac9123a72cbdd5748292a",
++  helpText:
++    "Wallet to read a signal for. Only wallets in Predge's verified smart-money set carry one; " +
++    "the set is re-ranked, so a wallet can leave it and the step then fails with \"No Predge signal for this wallet\". " +
++    "The prefilled example is illustrative and may no longer be ranked.",
++  required: true,
++});
++
++const predgePlugin: IntegrationPlugin = {
++  type: "predge",
++  egress: "user-destination",
++  label: "Predge",
++  description:
++    "Read verifiable smart-money signals from Predge. Before the step succeeds, the signal's ed25519 signature is checked offline against a pinned key, the signed envelope is checked to be the conviction signal for the wallet asked for, and every field the step returns is checked against its documented type and range. A workflow therefore only ever acts on a verified conviction that is a number in 0-100, never on a numeric string, a missing field or an out-of-range value.",
++
++  icon: PredgeIcon,
++
++  // Works against the hosted Predge signal service without credentials. Add a
++  // connection to point at your own deployment or pin a specific signing key.
++  requiresCredentials: false,
++
++  formFields: [
++    {
++      id: "signalUrl",
++      label: "Predge Signal URL",
++      type: "url",
++      placeholder: "https://api.predge.io",
++      configKey: "PREDGE_SIGNAL_URL",
++      envVar: "PREDGE_SIGNAL_URL",
++      helpText: "Base URL of the Predge signal service to query. ",
++      helpLink: {
++        text: "predge.io",
++        url: "https://predge.io",
++      },
++    },
++    {
++      id: "signerKeyId",
++      label: "Pinned Signer Key (optional)",
++      type: "text",
++      placeholder: "hex ed25519 public key",
++      configKey: "PREDGE_SIGNER_KEY_ID",
++      envVar: "PREDGE_SIGNER_KEY_ID",
++      helpText:
++        "Optional. Overrides Predge's published signing key with your own deployment's key. Leave blank to verify against Predge's published key. The key the response carries is never trusted on its own. If steps start failing with \"signer is not the pinned Predge key\", Predge has rotated its key: put the new published key here to keep running until a plugin version ships with it.",
++    },
++    {
++      id: "maxSignalAgeSeconds",
++      label: "Max Signal Age, seconds (optional)",
++      type: "text",
++      placeholder: "600",
++      configKey: "PREDGE_MAX_SIGNAL_AGE_SECONDS",
++      envVar: "PREDGE_MAX_SIGNAL_AGE_SECONDS",
++      helpText:
++        "Optional. Reject an attestation issued more than this many seconds ago. Defaults to 600. " +
++        "0 is taken literally and rejects everything, since any network round trip already exceeds it; " +
++        "for the strictest usable window set a few seconds, not 0.",
++    },
++  ],
++
++  testConfig: {
++    getTestFunction: async () => {
++      const { testPredge } = await import("./test");
++      return testPredge;
++    },
++  },
++
++  actions: [
++    {
++      slug: "read-signal",
++      label: "Read Predge Signal",
++      description:
++        "Fetch a wallet's conviction signal from Predge and verify it offline: pinned ed25519 signer, signature over the canonical payload, the signed `resource` naming the conviction signal for this wallet, subject binding to the wallet, and freshness. The signed payload is then checked field by field: conviction a finite number in 0-100, action one of accumulate/reduce/hold, window one of 7d/30d, each required. The step FAILS on either gate, with the field or the reason in its error, so a successful step is a verified signal whose fields are the documented shape, and there is no `verified` flag to forget to gate on.",
++      category: "Predge",
++      stepFunction: "readSignalStep",
++      stepImportPath: "read-signal",
++      outputFields: [
++        { field: "success", description: "True only for a signal that verified and whose fields passed their type and range checks; the step errors otherwise" },
++        { field: "wallet", description: "The wallet asked for, which the signal was bound to" },
++        {
++          field: "conviction",
++          description: "Predge conviction score from the wallet's on-chain track record; always a number in 0-100, checked before the step succeeds",
++        },
++        {
++          field: "action",
++          description: "Recommended action for the wallet; always one of accumulate / reduce / hold",
++        },
++        { field: "window", description: "Scoring window for the signal; always 7d or 30d" },
++        { field: "signer", description: "Hex ed25519 public key the signature verified against (Predge's published key, or your pinned override)" },
++        { field: "issuedAt", description: "ISO-8601 issue time carried by the verified attestation" },
++        {
++          field: "ageSeconds",
++          description: "Age of the attestation in seconds at verification time; can be slightly negative within the clock-skew tolerance",
++        },
++        { field: "error", description: "On failure, why the lookup, the verification or a payload field check did not hold" },
++      ],
++      configFields: [walletField()],
++    },
++  ],
++};
++
++// Auto-register on import
++registerIntegration(predgePlugin);
++
++export default predgePlugin;
+diff --git a/plugins/predge/steps/predge-core.ts b/plugins/predge/steps/predge-core.ts
+new file mode 100644
+index 000000000..d7db04f48
+--- /dev/null
++++ b/plugins/predge/steps/predge-core.ts
+@@ -0,0 +1,569 @@
++import "server-only";
++import { ExecutionErrorType } from "@/lib/errors/execution-error-type";
++
++import { ErrorCategory, logUserError } from "@/lib/logging";
++import {
++  assertUrlIsPublic,
++  safeFetch,
++  SsrfBlockedError,
++} from "@/lib/safe-fetch";
++import { getErrorMessage } from "@/lib/utils";
++import { stripTrailingSlashes } from "@/lib/utils/url";
++import type { PredgeCredentials } from "../credentials";
++
++// Predge serves verifiable smart-money signals. Each signal arrives as a
++// detached ed25519 attestation over a canonical encoding of the payload, so a
++// workflow can confirm the number was issued by Predge and was not altered in
++// flight -- with no call back to Predge and no trust in the transport. The
++// signed read is a free, unauthenticated GET; the point of this plugin is the
++// verification, which a Code node cannot do (its sandbox exposes `crypto` as
++// `{ randomUUID }` only, with no `subtle`).
++//
++// Default hosted signal service. Point PREDGE_SIGNAL_URL at your own Predge
++// deployment (or a local dev service) to override.
++const DEFAULT_PREDGE_SIGNAL_URL = "https://api.predge.io";
++
++// The signature scheme Predge stamps on every attestation.
++const PREDGE_SCHEME = "veri402-ed25519-v1";
++
++// Predge's published attestation signing key (hex raw ed25519 public key, role
++// "attestation" in https://api.predge.io/.well-known/predge-keys.json). A
++// detached attestation only means something against a signer known in advance,
++// so this is pinned by default and verification fails closed against it.
++// Override with PREDGE_SIGNER_KEY_ID to pin a different deployment's key.
++const DEFAULT_PINNED_SIGNER =
++  "13fa3d18a369e6c71bf941563ba47822b30182273d5106a0e8fb61c5016352d9";
++
++// A freshly issued attestation is re-minted per request, so a short window
++// kills replay of a captured older response without breaking legitimate reads.
++const DEFAULT_MAX_SIGNAL_AGE_SECONDS = 600;
++// Tolerate a little clock skew on issuedAt before calling it future-dated.
++const MAX_CLOCK_SKEW_MS = 60_000;
++// A signal host that accepts the connection and never answers must not hold the
++// step open. Mirrors plugins/robinhood/steps/stock-token-core.ts.
++const FETCH_TIMEOUT_MS = 10_000;
++// The signed envelope is well under a kilobyte, and the host is operator-chosen,
++// so bound what a misconfigured or hostile one can make the step parse.
++//
++// It bounds what is parsed, not what is allocated, with the same caveat
++// plugins/web3/steps/check-approval-exploit.ts states: the declared
++// content-length is checked first and is the allocation bound for any server
++// that states one, but when the header is absent `response.text()` has already
++// materialised the whole body before its length can be read, so the second
++// check is too late to bound memory. `body.length` also counts UTF-16 code
++// units rather than bytes, which for the ASCII JSON this endpoint serves is the
++// same number and for anything else is a smaller one than the budget names.
++const MAX_RESPONSE_BYTES = 64 * 1024;
++
++// Opening words of the reason a resource mismatch fails with. The step matches
++// on this to attribute the failure, so the constant is the contract between the
++// two and the message can be reworded without silently changing attribution.
++export const RESOURCE_MISMATCH_REASON = "attestation is for";
++
++// Domain separator for the conviction-signal product: the `resource` the signal
++// service stamps, and the thing this plugin is willing to read. `scheme` is a
++// constant any issuer can copy and `payload.wallet` only says which wallet, so
++// without this the only thing separating a conviction signal from some other
++// attestation the same key signed about the same wallet is the field names in
++// the payload. `resource` is covered by the signature, so comparing it is what
++// makes the binding.
++const RESOURCE_PREFIX = "conviction:";
++
++// The complete set of values the signal service emits for the two categorical
++// fields. Anything else is rejected rather than passed through, so a workflow
++// branching on them can enumerate them and know the list is exhaustive.
++export const PREDGE_ACTIONS = ["accumulate", "reduce", "hold"] as const;
++export const PREDGE_WINDOWS = ["7d", "30d"] as const;
++
++export type PredgeAction = (typeof PREDGE_ACTIONS)[number];
++export type PredgeWindow = (typeof PREDGE_WINDOWS)[number];
++
++// Conviction is a percentile within Predge's ranked smart-money set, so it is a
++// number in this closed range -- never a numeric string, never out of range.
++export const MIN_CONVICTION = 0;
++export const MAX_CONVICTION = 100;
++
++export type PredgeConvictionSignal = {
++  wallet: string;
++  // 0-100 conviction from Predge's on-chain track-record model.
++  conviction: number;
++  // What an executor should do with the wallet.
++  action: PredgeAction;
++  window: PredgeWindow;
++};
++
++type PredgeAttestation = {
++  scheme: string;
++  // Which signed product this envelope is; `conviction:<wallet>` here. Signed,
++  // and checked against the expected value -- see RESOURCE_PREFIX.
++  resource: string;
++  // Shape-checked by parseConvictionPayload, not by this type: the body is
++  // untrusted JSON, so the declared type is a claim until that runs.
++  payload: PredgeConvictionSignal;
++  issuedAt: string;
++  nonce: string;
++  // hex ed25519 public key that signed this attestation.
++  keyId: string;
++};
++
++export type PredgeSignedAttestation = {
++  attestation: PredgeAttestation;
++  // hex detached ed25519 signature over canonicalize(attestation).
++  signature: string;
++};
++
++export type PredgeFetchResult<T> =
++  | { success: true; data: T }
++  | { success: false; error: string; errorClass?: ExecutionErrorType };
++
++export type PredgeVerifyInput = {
++  // The wallet the step asked for. The signed payload must be about this exact
++  // wallet, otherwise a correctly signed signal about a different wallet passes.
++  requestedWallet: string;
++  // Signer to trust. Falls back to Predge's published key; never to the key the
++  // response carries.
++  expectedKeyId?: string;
++  // Reject an attestation older than this many seconds. Falls back to 600.
++  maxAgeSeconds?: number;
++  // Injectable clock for tests.
++  now?: number;
++};
++
++export type PredgeVerifyResult = {
++  // True only when scheme, pinned signer, signature, subject, the signed
++  // `resource` and freshness all hold. Internal to this module: the step does not return it. A workflow that
++  // reads a boolean can forget to branch on it, so the step fails instead, and
++  // an unverified signal cannot be stepped over by omission.
++  verified: boolean;
++  // Why verification failed, for surfacing to the operator. Undefined on pass.
++  reason?: string;
++  // hex ed25519 public key the attestation claims to be signed by.
++  signer: string;
++  // True only when payload.wallet matches the requested wallet AND the
++  // signature has already held. Every failure path reports false, including
++  // paths that never compared the wallets, so the field cannot assert a binding
++  // the signature has not earned. False means "not established", not
++  // "mismatch".
++  subjectMatch: boolean;
++  // ISO-8601 issue time carried by the attestation, when present.
++  issuedAt?: string;
++  // Age of the attestation in seconds at verification time, when computable.
++  ageSeconds?: number;
++};
++
++// Deterministic JSON: object keys sorted recursively, so signer and verifier
++// hash the exact same bytes regardless of key order. Mirrors Predge's signer.
++// Exported so tests can produce the exact bytes the verifier checks.
++export function canonicalize(value: unknown): string {
++  if (value === null || typeof value !== "object") {
++    return JSON.stringify(value);
++  }
++  if (Array.isArray(value)) {
++    return `[${value.map(canonicalize).join(",")}]`;
++  }
++  const obj = value as Record<string, unknown>;
++  return `{${Object.keys(obj)
++    .sort()
++    .map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k])}`)
++    .join(",")}}`;
++}
++
++// Returns an ArrayBuffer-backed view (not ArrayBufferLike) so it satisfies
++// WebCrypto's BufferSource parameters without a cast.
++function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
++  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
++  if (clean.length % 2 !== 0 || /[^0-9a-fA-F]/.test(clean)) {
++    throw new Error("invalid hex");
++  }
++  const out = new Uint8Array(clean.length / 2);
++  for (let i = 0; i < out.length; i++) {
++    out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
++  }
++  return out;
++}
++
++// EVM addresses are case-insensitive, so compare them normalized.
++function normalizeWallet(wallet: string): string {
++  const trimmed = wallet.trim().toLowerCase();
++  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
++}
++
++async function ed25519SignatureValid(
++  attestation: PredgeAttestation,
++  signature: string
++): Promise<boolean> {
++  try {
++    const key = await crypto.subtle.importKey(
++      "raw",
++      hexToBytes(attestation.keyId),
++      { name: "Ed25519" },
++      false,
++      ["verify"]
++    );
++    const message = new TextEncoder().encode(canonicalize(attestation));
++    return await crypto.subtle.verify(
++      { name: "Ed25519" },
++      key,
++      hexToBytes(signature),
++      message
++    );
++  } catch {
++    return false;
++  }
++}
++
++/**
++ * Offline verification of a Predge signal via WebCrypto -- no external
++ * dependency and no call back to Predge. Returns a structured result rather
++ * than throwing, so a bad signal is a clean `verified: false` with a reason.
++ *
++ * `verified` is true only when every one of these holds, checked in order:
++ *   1. the scheme is the one Predge stamps;
++ *   2. the attestation is signed by the pinned signer (the response never gets
++ *      to choose its own key);
++ *   3. the ed25519 signature matches the canonical payload bytes;
++ *   4. the payload is about the wallet the step asked for;
++ *   5. the signed `resource` is the conviction signal for that same wallet,
++ *      not another signed Predge product about it;
++ *   6. the attestation was issued recently enough.
++ */
++export async function verifyPredgeSignal(
++  signed: PredgeSignedAttestation,
++  input: PredgeVerifyInput
++): Promise<PredgeVerifyResult> {
++  const attestation = signed?.attestation as PredgeAttestation | undefined;
++  const signature = signed?.signature;
++
++  // Malformed guard first, before any field is read, and type-check the exact
++  // fields the checks below call string methods on. A hostile or self-hosted
++  // response (`200 {}`, `{"wallet": 123}`, a numeric keyId) then returns a
++  // clean `verified: false` instead of throwing out of the step. Read the
++  // untrusted body through an `unknown` view so the checks are real at runtime.
++  const raw = attestation as unknown as {
++    scheme?: unknown;
++    resource?: unknown;
++    keyId?: unknown;
++    issuedAt?: unknown;
++    payload?: { wallet?: unknown };
++  } | undefined;
++  if (
++    !raw ||
++    typeof signature !== "string" ||
++    typeof raw.scheme !== "string" ||
++    typeof raw.resource !== "string" ||
++    typeof raw.keyId !== "string" ||
++    typeof raw.payload?.wallet !== "string"
++  ) {
++    return {
++      verified: false,
++      reason: "malformed attestation",
++      signer: typeof raw?.keyId === "string" ? raw.keyId : "",
++      subjectMatch: false,
++    };
++  }
++
++  const signer = raw.keyId;
++  const walletInPayload = raw.payload.wallet;
++  const issuedAt = typeof raw.issuedAt === "string" ? raw.issuedAt : undefined;
++  const pinned = (input.expectedKeyId?.trim() || DEFAULT_PINNED_SIGNER).toLowerCase();
++
++  // subjectMatch is reported true only after scheme, signer and signature have
++  // held, so the field never claims a binding the signature has not earned.
++  const fail = (reason: string, ageSeconds?: number): PredgeVerifyResult => ({
++    verified: false,
++    reason,
++    signer,
++    subjectMatch: false,
++    issuedAt,
++    ageSeconds,
++  });
++
++  if (raw.scheme !== PREDGE_SCHEME) {
++    return fail(`unexpected scheme ${JSON.stringify(raw.scheme)}`);
++  }
++  if (signer.toLowerCase() !== pinned) {
++    // The finding that matters: without this, the responder chooses both the
++    // key and the signature over it, and `verified` means nothing.
++    return fail("signer is not the pinned Predge key");
++  }
++  if (!(await ed25519SignatureValid(attestation as PredgeAttestation, signature))) {
++    return fail("signature does not match payload");
++  }
++
++  // Subject binding, checked only now that the signature holds.
++  const requestedWallet = normalizeWallet(input.requestedWallet);
++  const subjectMatch = normalizeWallet(walletInPayload) === requestedWallet;
++  if (!subjectMatch) {
++    return fail("signal is about a different wallet");
++  }
++
++  // Domain separation, on the same signed bytes: this envelope has to be the
++  // conviction signal for this wallet, not another signed product about it.
++  const expectedResource = `${RESOURCE_PREFIX}${requestedWallet}`;
++  if (raw.resource.trim().toLowerCase() !== expectedResource) {
++    return fail(
++      `${RESOURCE_MISMATCH_REASON} ${JSON.stringify(raw.resource)}, expected ${JSON.stringify(expectedResource)}`
++    );
++  }
++
++  const issuedMs = issuedAt ? Date.parse(issuedAt) : Number.NaN;
++  if (Number.isNaN(issuedMs)) {
++    return fail("missing or unparseable issuedAt");
++  }
++  const now = input.now ?? Date.now();
++  const ageMs = now - issuedMs;
++  const ageSeconds = Math.round(ageMs / 1000);
++  const maxAgeSeconds = input.maxAgeSeconds ?? DEFAULT_MAX_SIGNAL_AGE_SECONDS;
++  if (ageMs > maxAgeSeconds * 1000) {
++    return fail(`attestation is stale (${ageSeconds}s old)`, ageSeconds);
++  }
++  if (ageMs < -MAX_CLOCK_SKEW_MS) {
++    return fail("attestation issuedAt is in the future", ageSeconds);
++  }
++
++  return { verified: true, signer, subjectMatch: true, issuedAt, ageSeconds };
++}
++
++export type PredgePayloadResult =
++  | { valid: true; signal: PredgeConvictionSignal }
++  | { valid: false; reason: string };
++
++// What a value actually is, for an error the operator can act on: the runtime
++// type, and the value itself when it is short enough to be worth printing.
++function describeValue(value: unknown): string {
++  if (value === undefined) {
++    return "missing";
++  }
++  if (value === null) {
++    return "null";
++  }
++  if (Array.isArray(value)) {
++    return "array";
++  }
++  const type = typeof value;
++  if (type === "object" || type === "function") {
++    return type;
++  }
++  const rendered = JSON.stringify(value) ?? String(value);
++  return rendered.length > 40 ? type : `${type} ${rendered}`;
++}
++
++/**
++ * Check that a verified payload is the shape the step claims to return, and
++ * return it typed. A signature proves who issued the bytes and that they did
++ * not change; it says nothing about what is in them, so every field the step
++ * exposes is checked here before it reaches a workflow.
++ *
++ * Nothing is coerced. `conviction: "99999"` is a failure, not the number 99999:
++ * a template comparison would read `"99999" >= 80` as true, on a value the
++ * documented 0-100 range does not admit. A missing field is a failure too --
++ * emitting the key as `undefined` renders empty in a template and silently
++ * skips a `conviction < 30` branch, which is the wrong way for a gate to fail.
++ */
++export function parseConvictionPayload(payload: unknown): PredgePayloadResult {
++  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
++    return {
++      valid: false,
++      reason: `payload must be an object, got ${describeValue(payload)}`,
++    };
++  }
++  const raw = payload as Record<string, unknown>;
++
++  if (typeof raw.wallet !== "string" || raw.wallet.trim() === "") {
++    return {
++      valid: false,
++      reason: `wallet must be a non-empty string, got ${describeValue(raw.wallet)}`,
++    };
++  }
++
++  const conviction = raw.conviction;
++  if (typeof conviction !== "number" || !Number.isFinite(conviction)) {
++    return {
++      valid: false,
++      reason: `conviction must be a finite number in ${MIN_CONVICTION}-${MAX_CONVICTION}, got ${describeValue(conviction)}`,
++    };
++  }
++  if (conviction < MIN_CONVICTION || conviction > MAX_CONVICTION) {
++    return {
++      valid: false,
++      reason: `conviction must be in ${MIN_CONVICTION}-${MAX_CONVICTION}, got number ${conviction}`,
++    };
++  }
++
++  if (!(PREDGE_ACTIONS as readonly unknown[]).includes(raw.action)) {
++    return {
++      valid: false,
++      reason: `action must be one of ${PREDGE_ACTIONS.join(", ")}, got ${describeValue(raw.action)}`,
++    };
++  }
++  if (!(PREDGE_WINDOWS as readonly unknown[]).includes(raw.window)) {
++    return {
++      valid: false,
++      reason: `window must be one of ${PREDGE_WINDOWS.join(", ")}, got ${describeValue(raw.window)}`,
++    };
++  }
++
++  return {
++    valid: true,
++    signal: {
++      wallet: raw.wallet,
++      conviction,
++      action: raw.action as PredgeAction,
++      window: raw.window as PredgeWindow,
++    },
++  };
++}
++
++/**
++ * Who a bad response body is attributed to. It is the upstream's doing unless
++ * the operator repointed the host, in which case they are reading something
++ * that was never a Predge response. Covers an unparseable body, an oversized
++ * one, a malformed attestation, an envelope signed for a different resource and
++ * a payload that is not a conviction signal, which are the same mistake at five
++ * depths. Attribution only: this changes no
++ * retry behaviour, only which side of the fence the run is filed on.
++ */
++export function blameForBadBody(credentials: PredgeCredentials): ExecutionErrorType {
++  return credentials.PREDGE_SIGNAL_URL?.trim()
++    ? ExecutionErrorType.USER
++    : ExecutionErrorType.EXTERNAL;
++}
++
++function isParseableUrl(value: string): boolean {
++  try {
++    return Boolean(new URL(value));
++  } catch {
++    return false;
++  }
++}
++
++function resolveBaseUrl(credentials: PredgeCredentials): string {
++  const override = credentials.PREDGE_SIGNAL_URL?.trim();
++  const base = override && override.length > 0 ? override : DEFAULT_PREDGE_SIGNAL_URL;
++  return stripTrailingSlashes(base);
++}
++
++/**
++ * Fetch a signed Predge signal for a wallet. Read-only GET through safeFetch so
++ * the SSRF guard attributes every request; the base URL is user-configurable so
++ * it is validated with `assertUrlIsPublic` first (always-on, ignores shadow
++ * mode). Carries an explicit timeout so a stalled host cannot hold the step.
++ */
++export async function fetchSignedSignal(
++  wallet: string,
++  credentials: PredgeCredentials
++): Promise<PredgeFetchResult<PredgeSignedAttestation>> {
++  const base = resolveBaseUrl(credentials);
++  const url = `${base}/v1/signal/${encodeURIComponent(wallet)}`;
++
++  // A base URL the operator typed can be unparseable ("api.predge.io" with no
++  // scheme, say). assertUrlIsPublic throws a plain TypeError on that, which
++  // would otherwise be reported as Predge being unreachable rather than as the
++  // typo it is.
++  if (!isParseableUrl(url)) {
++    return {
++      success: false,
++      error: `Predge signal URL is not a valid URL: ${url}`,
++      errorClass: ExecutionErrorType.USER,
++    };
++  }
++
++  try {
++    await assertUrlIsPublic(url);
++
++    const response = await safeFetch(url, {
++      plugin: "predge",
++      method: "GET",
++      headers: { Accept: "application/json" },
++      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
++    });
++
++    if (!response.ok) {
++      if (response.status === 404) {
++        return {
++          success: false,
++          error: "No Predge signal for this wallet.",
++          errorClass: ExecutionErrorType.USER,
++        };
++      }
++      if (response.status === 402) {
++        // The signed-signal read is meant to be free. A 402 means this endpoint
++        // is gated and the plugin is not the right tool to pay for it.
++        return {
++          success: false,
++          error:
++            "Predge signal endpoint requires payment; this plugin reads the free signed-signal endpoint only.",
++          errorClass: ExecutionErrorType.USER,
++        };
++      }
++      if (response.status === 429) {
++        // Rate limiting from the signal host is transient and is not the
++        // workflow author's configuration, so it does not belong in their error
++        // budget. plugins/discord/steps/send-message.ts and
++        // plugins/pagerduty/steps/pagerduty-core.ts both treat 429 this way.
++        return {
++          success: false,
++          error: "Predge signal service is rate limiting this caller (HTTP 429).",
++          errorClass: ExecutionErrorType.EXTERNAL,
++        };
++      }
++      return {
++        success: false,
++        error: `HTTP ${response.status}: ${response.statusText}`,
++        errorClass:
++          response.status >= 500
++            ? ExecutionErrorType.EXTERNAL
++            : ExecutionErrorType.USER,
++      };
++    }
++
++    // Declared size first, so an oversized body is refused before it becomes a
++    // string; a missing or unparseable header reads as NaN and falls through to
++    // the length check below, which is the real bound on what gets parsed.
++    const declaredBytes = Number(response.headers.get("content-length"));
++    if (Number.isFinite(declaredBytes) && declaredBytes > MAX_RESPONSE_BYTES) {
++      return {
++        success: false,
++        error: `Predge response declared ${declaredBytes} bytes, over the ${MAX_RESPONSE_BYTES} byte limit.`,
++        errorClass: blameForBadBody(credentials),
++      };
++    }
++    const body = await response.text();
++    if (body.length > MAX_RESPONSE_BYTES) {
++      return {
++        success: false,
++        error: `Predge response exceeded the ${MAX_RESPONSE_BYTES} byte limit.`,
++        errorClass: blameForBadBody(credentials),
++      };
++    }
++
++    try {
++      return { success: true, data: JSON.parse(body) as PredgeSignedAttestation };
++    } catch {
++      return {
++        success: false,
++        error: "Predge response was not valid JSON.",
++        errorClass: blameForBadBody(credentials),
++      };
++    }
++  } catch (error) {
++    if (error instanceof SsrfBlockedError) {
++      logUserError(
++        ErrorCategory.VALIDATION,
++        "[Predge] Blocked SSRF target",
++        error.message,
++        { plugin_name: "predge" }
++      );
++      return {
++        success: false,
++        error: `Predge signal URL is not allowed: ${error.message}`,
++        errorClass: ExecutionErrorType.USER,
++      };
++    }
++    return {
++      success: false,
++      error: `Failed to reach Predge: ${getErrorMessage(error)}`,
++      errorClass: ExecutionErrorType.EXTERNAL,
++    };
++  }
++}
+diff --git a/plugins/predge/steps/read-signal.ts b/plugins/predge/steps/read-signal.ts
+new file mode 100644
+index 000000000..43fc59e39
+--- /dev/null
++++ b/plugins/predge/steps/read-signal.ts
+@@ -0,0 +1,188 @@
++import "server-only";
++import { ExecutionErrorType } from "@/lib/errors/execution-error-type";
++
++import { fetchCredentials } from "@/lib/credential-fetcher";
++import {
++  runPluginStep,
++  type StepInput,
++} from "@/lib/workflow/executor/step-handler";
++import type { PredgeCredentials } from "../credentials";
++import {
++  blameForBadBody,
++  RESOURCE_MISMATCH_REASON,
++  fetchSignedSignal,
++  parseConvictionPayload,
++  type PredgeAction,
++  type PredgeWindow,
++  verifyPredgeSignal,
++} from "./predge-core";
++
++// A successful step means a verified signal whose fields are the documented
++// shape: the step fails (below) if verification does not hold OR if the signed
++// payload is not a conviction signal, so success carries only checked data. A
++// signature proves who issued the bytes, not what is in them, so the two are
++// separate gates and both are on the error path -- not in the data as a flag an
++// author could forget to gate on.
++type ReadSignalResult =
++  | {
++      success: true;
++      // The wallet the step asked for; equals the signed subject, which was
++      // checked to match before this point.
++      wallet: string;
++      // 0-100 conviction from Predge's on-chain track-record model. Checked to
++      // be a finite number in that range, never a numeric string and never
++      // absent: a workflow comparing it is comparing numbers.
++      conviction: number;
++      // One of accumulate / reduce / hold, checked against that set.
++      action: PredgeAction;
++      // One of 7d / 30d, checked against that set.
++      window: PredgeWindow;
++      // hex ed25519 public key the signature verified against.
++      signer: string;
++      // ISO-8601 issue time carried by the verified attestation.
++      issuedAt: string;
++      // Age of the attestation in seconds at verification time. Can be slightly
++      // negative within the clock-skew tolerance.
++      ageSeconds: number;
++    }
++  | {
++      success: false;
++      error: string;
++      errorClass?: ExecutionErrorType;
++    };
++
++export type ReadSignalCoreInput = {
++  wallet: string;
++};
++
++export type ReadSignalInput = StepInput &
++  ReadSignalCoreInput & {
++    integrationId?: string;
++  };
++
++// Blank falls back to the default window. `0` is honored literally (reject
++// anything not issued this instant) rather than silently becoming the default,
++// so an operator who types it gets what they asked for. Negatives and
++// non-numbers are ignored.
++function parseMaxAgeSeconds(raw?: string): number | undefined {
++  if (!raw?.trim()) {
++    return undefined;
++  }
++  const parsed = Number(raw.trim());
++  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
++}
++
++// Who to blame for a verification failure, for attribution only: this changes
++// no retry behaviour, it changes which side of the fence the run is filed on.
++//
++// Two kinds of reason are only reachable because the operator configured
++// something, and only then. A pinned-key mismatch is Predge rotating its signer
++// unless the operator supplied their own key id, in which case a typo there
++// produces exactly this. A bad body is Predge serving garbage unless the
++// operator repointed the host, in which case they are parsing something that
++// was never a Predge response -- and an envelope signed for a different
++// resource is that same mistake one layer in, a real Predge signature over
++// another product, so it is attributed the same way. Everything else is the
++// upstream's doing.
++function classifyVerificationFailure(
++  reason: string | undefined,
++  credentials: PredgeCredentials
++): ExecutionErrorType {
++  const operatorSetKeyId = Boolean(credentials.PREDGE_SIGNER_KEY_ID?.trim());
++  if (reason === "signer is not the pinned Predge key" && operatorSetKeyId) {
++    return ExecutionErrorType.USER;
++  }
++  if (reason === "malformed attestation" || reason?.startsWith(RESOURCE_MISMATCH_REASON)) {
++    return blameForBadBody(credentials);
++  }
++  return ExecutionErrorType.EXTERNAL;
++}
++
++async function stepHandler(
++  input: ReadSignalCoreInput,
++  credentials: PredgeCredentials
++): Promise<ReadSignalResult> {
++  const wallet = input.wallet?.trim();
++  if (!wallet) {
++    return {
++      success: false,
++      error: "Wallet address is required.",
++      errorClass: ExecutionErrorType.USER,
++    };
++  }
++
++  const result = await fetchSignedSignal(wallet, credentials);
++  if (!result.success) {
++    return result;
++  }
++
++  const signed = result.data;
++  // Verify offline against Predge's pinned key. PREDGE_SIGNER_KEY_ID overrides
++  // the pinned default; the key the response carries is never trusted on its
++  // own. Binds the signal to this wallet and rejects stale attestations.
++  const verification = await verifyPredgeSignal(signed, {
++    requestedWallet: wallet,
++    expectedKeyId: credentials.PREDGE_SIGNER_KEY_ID?.trim() || undefined,
++    maxAgeSeconds: parseMaxAgeSeconds(credentials.PREDGE_MAX_SIGNAL_AGE_SECONDS),
++  });
++
++  // A gate that did not hold belongs on the error path, not in the data. Fail
++  // the step with the reason rather than handing the workflow an unverified
++  // payload it might act on. This also means the payload below is only read
++  // once verification has vouched for it.
++  if (!verification.verified) {
++    return {
++      success: false,
++      error: `Predge signal did not verify: ${verification.reason ?? "unknown reason"}`,
++      errorClass: classifyVerificationFailure(verification.reason, credentials),
++    };
++  }
++
++  // The signature vouches for the bytes, not for what is in them. Everything
++  // this step returns is checked against the documented shape before it can
++  // reach a workflow: a conviction outside 0-100, a numeric string, a missing
++  // field or an unrecognised action or window fails the step rather than being
++  // handed to a gate that would coerce it.
++  const parsed = parseConvictionPayload(signed.attestation.payload);
++  if (!parsed.valid) {
++    return {
++      success: false,
++      error: `Predge signal payload is not a conviction signal: ${parsed.reason}`,
++      errorClass: blameForBadBody(credentials),
++    };
++  }
++
++  const signal = parsed.signal;
++  return {
++    success: true,
++    // The requested wallet; subject binding already confirmed it equals the
++    // signed subject, so this never reports a different wallet than asked for.
++    wallet,
++    conviction: signal.conviction,
++    action: signal.action,
++    window: signal.window,
++    signer: verification.signer,
++    issuedAt: verification.issuedAt ?? "",
++    ageSeconds: verification.ageSeconds ?? 0,
++  };
++}
++
++export async function readSignalStep(
++  input: ReadSignalInput
++): Promise<ReadSignalResult> {
++  "use step";
++
++  const credentials = input.integrationId
++    ? await fetchCredentials(input.integrationId, {
++        organizationId: input._context?.organizationId ?? null,
++      })
++    : {};
++
++  return runPluginStep(
++    { pluginName: "predge", actionName: "read-signal" },
++    input,
++    () => stepHandler(input, credentials)
++  );
++}
++
++export const _integrationType = "predge";
+diff --git a/plugins/predge/test.ts b/plugins/predge/test.ts
+new file mode 100644
+index 000000000..c397870c4
+--- /dev/null
++++ b/plugins/predge/test.ts
+@@ -0,0 +1,34 @@
++import { stripTrailingSlashes } from "@/lib/utils/url";
++
++const DEFAULT_PREDGE_SIGNAL_URL = "https://api.predge.io";
++
++export async function testPredge(
++  credentials: Record<string, string>
++): Promise<{ success: boolean; error?: string }> {
++  try {
++    const rawUrl =
++      credentials.PREDGE_SIGNAL_URL?.trim() || DEFAULT_PREDGE_SIGNAL_URL;
++    const baseUrl = stripTrailingSlashes(rawUrl);
++
++    // Read-only: the published keyset confirms the signal service is reachable
++    // and is serving Predge signing keys.
++    const response = await fetch(`${baseUrl}/.well-known/predge-keys.json`, {
++      method: "GET",
++      headers: { Accept: "application/json" },
++    });
++
++    if (!response.ok) {
++      return {
++        success: false,
++        error: `Predge signal service returned HTTP ${response.status}. Check the signal URL.`,
++      };
++    }
++
++    return { success: true };
++  } catch (error) {
++    return {
++      success: false,
++      error: error instanceof Error ? error.message : String(error),
++    };
++  }
++}
+diff --git a/tests/unit/predge-read-signal.test.ts b/tests/unit/predge-read-signal.test.ts
+new file mode 100644
+index 000000000..2418ddd2c
+--- /dev/null
++++ b/tests/unit/predge-read-signal.test.ts
+@@ -0,0 +1,787 @@
++import {
++  afterEach,
++  beforeAll,
++  beforeEach,
++  describe,
++  expect,
++  it,
++  vi,
++} from "vitest";
++
++vi.mock("server-only", () => ({}));
++
++vi.mock("@/lib/workflow/executor/step-handler", async () =>
++  (await import("../mocks/step-mocks")).stepHandlerPassthrough()
++);
++
++vi.mock("@/lib/metrics/instrumentation/plugin", async () =>
++  (await import("../mocks/step-mocks")).pluginMetricsPassthrough()
++);
++
++const mockFetchCredentials = vi.fn();
++vi.mock("@/lib/credential-fetcher", () => ({
++  fetchCredentials: (...args: unknown[]) => mockFetchCredentials(...args),
++}));
++
++// Predge egress routes through safeFetch (the SSRF guard), not the raw fetch
++// global. Mock it so the step tests assert on a controlled response body.
++const { safeFetch } = vi.hoisted(() => ({ safeFetch: vi.fn() }));
++vi.mock("@/lib/safe-fetch", () => ({
++  safeFetch,
++  assertUrlIsPublic: vi.fn(() => Promise.resolve()),
++  SsrfBlockedError: class SsrfBlockedError extends Error {},
++}));
++
++import { ExecutionErrorType } from "@/lib/errors/execution-error-type";
++import {
++  canonicalize,
++  type PredgeSignedAttestation,
++  verifyPredgeSignal,
++} from "@/plugins/predge/steps/predge-core";
++import { readSignalStep } from "@/plugins/predge/steps/read-signal";
++
++const SCHEME = "veri402-ed25519-v1";
++const WALLET = "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984";
++const NOW = Date.parse("2026-09-16T12:00:00.000Z");
++
++function toHex(bytes: ArrayBuffer | Uint8Array): string {
++  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
++  return Array.from(view)
++    .map((b) => b.toString(16).padStart(2, "0"))
++    .join("");
++}
++
++type Signer = { privateKey: CryptoKey; keyIdHex: string };
++
++async function generateSigner(): Promise<Signer> {
++  const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
++    "sign",
++    "verify",
++  ])) as CryptoKeyPair;
++  const raw = await crypto.subtle.exportKey("raw", pair.publicKey);
++  return { privateKey: pair.privateKey, keyIdHex: toHex(raw) };
++}
++
++type SignalOverrides = {
++  wallet?: string;
++  conviction?: number;
++  action?: "accumulate" | "reduce" | "hold";
++  window?: "7d" | "30d";
++  issuedAt?: string;
++  keyId?: string; // force a keyId different from the signer, for tamper cases
++  resource?: string; // force a resource other than conviction:<wallet>
++  // Replace the whole payload, so a test can sign a body the declared type
++  // forbids. The point of these cases is that the signature is valid and the
++  // contents still are not what the step promises.
++  payload?: Record<string, unknown>;
++};
++
++async function signSignal(
++  signer: Signer,
++  overrides: SignalOverrides = {}
++): Promise<PredgeSignedAttestation> {
++  const attestation = {
++    scheme: SCHEME,
++    resource:
++      overrides.resource ??
++      `conviction:${(overrides.wallet ?? WALLET).toLowerCase()}`,
++    payload: overrides.payload ?? {
++      wallet: overrides.wallet ?? WALLET,
++      conviction: overrides.conviction ?? 82,
++      action: overrides.action ?? ("accumulate" as const),
++      window: overrides.window ?? ("30d" as const),
++    },
++    issuedAt: overrides.issuedAt ?? new Date(NOW).toISOString(),
++    nonce: "0011223344556677",
++    keyId: overrides.keyId ?? signer.keyIdHex,
++  };
++  const message = new TextEncoder().encode(canonicalize(attestation));
++  const signature = await crypto.subtle.sign(
++    { name: "Ed25519" },
++    signer.privateKey,
++    message
++  );
++  return {
++    attestation,
++    signature: toHex(signature),
++  } as PredgeSignedAttestation;
++}
++
++let signer: Signer;
++
++beforeAll(async () => {
++  signer = await generateSigner();
++});
++
++describe("verifyPredgeSignal", () => {
++  it("accepts a signal signed by the pinned key, about the wallet, and fresh", async () => {
++    const signed = await signSignal(signer);
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      expectedKeyId: signer.keyIdHex,
++      now: NOW,
++    });
++    expect(result.verified).toBe(true);
++    expect(result.reason).toBeUndefined();
++    expect(result.subjectMatch).toBe(true);
++    expect(result.signer).toBe(signer.keyIdHex);
++  });
++
++  it("rejects a signer that is not the pinned Predge key by default", async () => {
++    // No expectedKeyId override, so the default pinned Predge key applies. A
++    // signal minted with any other keypair must not verify -- this is the
++    // responder-chooses-its-own-key hole, closed.
++    const signed = await signSignal(signer);
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      now: NOW,
++    });
++    expect(result.verified).toBe(false);
++    expect(result.reason).toMatch(/pinned Predge key/i);
++  });
++
++  it("rejects a signal signed by a different key than the pin", async () => {
++    const attacker = await generateSigner();
++    const signed = await signSignal(attacker);
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      expectedKeyId: signer.keyIdHex,
++      now: NOW,
++    });
++    expect(result.verified).toBe(false);
++    expect(result.reason).toMatch(/pinned Predge key/i);
++  });
++
++  it("rejects a tampered payload", async () => {
++    const signed = await signSignal(signer);
++    signed.attestation.payload.conviction = 99; // flip after signing
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      expectedKeyId: signer.keyIdHex,
++      now: NOW,
++    });
++    expect(result.verified).toBe(false);
++    expect(result.reason).toMatch(/signature does not match/i);
++  });
++
++  it("rejects a correctly signed signal about a different wallet", async () => {
++    const other = "0x000000000000000000000000000000000000dead";
++    const signed = await signSignal(signer, { wallet: other });
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      expectedKeyId: signer.keyIdHex,
++      now: NOW,
++    });
++    expect(result.verified).toBe(false);
++    expect(result.subjectMatch).toBe(false);
++    expect(result.reason).toMatch(/different wallet/i);
++  });
++
++  it("rejects a stale attestation", async () => {
++    const oldIssued = new Date(NOW - 3_600_000).toISOString(); // 1h old
++    const signed = await signSignal(signer, { issuedAt: oldIssued });
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      expectedKeyId: signer.keyIdHex,
++      maxAgeSeconds: 600,
++      now: NOW,
++    });
++    expect(result.verified).toBe(false);
++    expect(result.reason).toMatch(/stale/i);
++  });
++
++  it("rejects an attestation issued in the future", async () => {
++    const futureIssued = new Date(NOW + 5 * 60_000).toISOString();
++    const signed = await signSignal(signer, { issuedAt: futureIssued });
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET,
++      expectedKeyId: signer.keyIdHex,
++      now: NOW,
++    });
++    expect(result.verified).toBe(false);
++    expect(result.reason).toMatch(/future/i);
++  });
++
++  it("matches wallets case-insensitively", async () => {
++    const signed = await signSignal(signer, { wallet: WALLET.toLowerCase() });
++    const result = await verifyPredgeSignal(signed, {
++      requestedWallet: WALLET.toUpperCase().replace("0X", "0x"),
++      expectedKeyId: signer.keyIdHex,
++      now: NOW,
++    });
++    expect(result.verified).toBe(true);
++  });
++
++  it("verifies a captured live signal against the default pin, no override", async () => {
++    // A real 200 from https://api.predge.io/v1/signal/<wallet>, signed by the
++    // production attestation key. This exercises the hardcoded
++    // DEFAULT_PINNED_SIGNER (no expectedKeyId passed) against Predge's real
++    // bytes, so a wrong keyId form or a canonicalization drift from the real
++    // signer would fail here rather than pass invisibly. `now` is pinned near
++    // issuedAt so freshness does not reject a stored fixture.
++    const LIVE: PredgeSignedAttestation = {
++      attestation: {
++        scheme: "veri402-ed25519-v1",
++        resource: "conviction:0x0224bb9eb0a5c9fd261ac9123a72cbdd5748292a",
++        payload: {
++          wallet: "0x0224bb9eb0a5c9fd261ac9123a72cbdd5748292a",
++          conviction: 100,
++          action: "accumulate",
++          window: "30d",
++        },
++        issuedAt: "2026-09-17T08:41:47.097Z",
++        nonce: "478637d087a23312fe549b4217cf97ec",
++        keyId:
++          "13fa3d18a369e6c71bf941563ba47822b30182273d5106a0e8fb61c5016352d9",
++      },
++      signature:
++        "b8e960636ed0badfcb26ca364e91ebaaffce0ccf10bc1364ae00b73497a10493d5ea007b57d27c776e3121ab353492d5e9a731348e7d1b8c1c18848cc609bf05",
++    };
++    const result = await verifyPredgeSignal(LIVE, {
++      requestedWallet: "0x0224bb9eb0a5c9fd261ac9123a72cbdd5748292a",
++      now: Date.parse(LIVE.attestation.issuedAt) + 1000,
++    });
++    expect(result.verified).toBe(true);
++    expect(result.signer).toBe(
++      "13fa3d18a369e6c71bf941563ba47822b30182273d5106a0e8fb61c5016352d9"
++    );
++    expect(result.subjectMatch).toBe(true);
++  });
++
++  it("returns a clean verified:false on a malformed body instead of throwing", async () => {
++    const bad: PredgeSignedAttestation[] = [
++      {} as unknown as PredgeSignedAttestation,
++      { attestation: {} } as unknown as PredgeSignedAttestation,
++      {
++        attestation: {
++          scheme: SCHEME,
++          keyId: 123,
++          payload: { wallet: WALLET },
++        },
++        signature: "00",
++      } as unknown as PredgeSignedAttestation,
++      {
++        attestation: {
++          scheme: SCHEME,
++          keyId: signer.keyIdHex,
++          payload: { wallet: 123 },
++        },
++        signature: "00",
++      } as unknown as PredgeSignedAttestation,
++    ];
++    for (const b of bad) {
++      const result = await verifyPredgeSignal(b, {
++        requestedWallet: WALLET,
++        now: NOW,
++      });
++      expect(result.verified).toBe(false);
++      expect(result.reason).toMatch(/malformed/i);
++    }
++  });
++});
++
++describe("readSignalStep", () => {
++  beforeEach(() => {
++    mockFetchCredentials.mockReset();
++    safeFetch.mockReset();
++  });
++
++  afterEach(() => {
++    vi.restoreAllMocks();
++  });
++
++  // The step reads the body as text and parses it itself (size cap first), so
++  // the mock has to answer the way a real Response does rather than handing
++  // back a pre-parsed object.
++  function respondWithBody(body: string, headers: Record<string, string> = {}) {
++    safeFetch.mockResolvedValue({
++      ok: true,
++      status: 200,
++      statusText: "OK",
++      headers: new Headers(headers),
++      text: () => Promise.resolve(body),
++    });
++  }
++
++  function respondWith(signed: PredgeSignedAttestation) {
++    respondWithBody(JSON.stringify(signed));
++  }
++
++  function respondWithStatus(status: number, statusText = "") {
++    safeFetch.mockResolvedValue({
++      ok: false,
++      status,
++      statusText,
++      headers: new Headers(),
++      text: () => Promise.resolve(""),
++    });
++  }
++
++  // A correctly signed envelope whose payload carries `body` verbatim, minted
++  // with the key the step is told to pin. Signature valid, contents arbitrary:
++  // exactly the case the shape checks exist for.
++  async function signedPayload(body: Record<string, unknown>) {
++    mockFetchCredentials.mockResolvedValue({
++      PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++    });
++    respondWith(
++      await signSignal(signer, {
++        payload: body,
++        issuedAt: new Date().toISOString(),
++      })
++    );
++  }
++
++  async function runStep() {
++    return (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as {
++      success: boolean;
++      error?: string;
++      errorClass?: string;
++      conviction?: unknown;
++      action?: unknown;
++      window?: unknown;
++    };
++  }
++
++  it("succeeds with a verified signal when the pin matches", async () => {
++    mockFetchCredentials.mockResolvedValue({
++      PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++    });
++    // Fresh issuedAt so the step's real-clock freshness check passes whenever
++    // the suite runs.
++    respondWith(
++      await signSignal(signer, { issuedAt: new Date().toISOString() })
++    );
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as {
++      success: boolean;
++      conviction: number;
++      signer: string;
++      wallet: string;
++    };
++
++    expect(out.success).toBe(true);
++    expect(out.conviction).toBe(82);
++    expect(out.signer).toBe(signer.keyIdHex);
++    expect(out.wallet).toBe(WALLET);
++  });
++
++  it("fails the step, not the data, when verification does not hold", async () => {
++    // No credentials, so the default Predge pin applies and the test-key
++    // signature is rejected. The step must error rather than return success
++    // with an unverified payload beside it.
++    mockFetchCredentials.mockResolvedValue({});
++    respondWith(
++      await signSignal(signer, { issuedAt: new Date().toISOString() })
++    );
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as { success: boolean; error: string };
++
++    expect(out.success).toBe(false);
++    expect(out.error).toMatch(/did not verify/i);
++    expect(out.error).toMatch(/pinned Predge key/i);
++  });
++
++  it("fails cleanly on a malformed 200 body rather than throwing", async () => {
++    mockFetchCredentials.mockResolvedValue({});
++    respondWithBody("{}"); // 200 with an empty body
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as { success: boolean; error: string };
++
++    expect(out.success).toBe(false);
++    expect(out.error).toMatch(/malformed/i);
++  });
++
++  // Attribution, not retry behaviour: a failure the operator's own config
++  // produced should not be filed against Predge's uptime. The same two reasons
++  // stay EXTERNAL when the operator configured nothing, because then they are
++  // genuinely the upstream's doing.
++  it("blames the operator for a pin mismatch only when they set the key id", async () => {
++    mockFetchCredentials.mockResolvedValue({
++      PREDGE_SIGNER_KEY_ID: "deadbeef",
++    });
++    respondWith(
++      await signSignal(signer, { issuedAt: new Date().toISOString() })
++    );
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as { success: boolean; errorClass: string };
++
++    expect(out.success).toBe(false);
++    expect(out.errorClass).toBe(ExecutionErrorType.USER);
++  });
++
++  it("blames Predge for a pin mismatch when the operator set nothing", async () => {
++    mockFetchCredentials.mockResolvedValue({});
++    respondWith(
++      await signSignal(signer, { issuedAt: new Date().toISOString() })
++    );
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as { success: boolean; errorClass: string };
++
++    expect(out.success).toBe(false);
++    expect(out.errorClass).toBe(ExecutionErrorType.EXTERNAL);
++  });
++
++  it("blames the operator for a malformed body only when they repointed the host", async () => {
++    mockFetchCredentials.mockResolvedValue({
++      PREDGE_SIGNAL_URL: "https://signals.example.internal",
++    });
++    respondWithBody("{}");
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as { success: boolean; errorClass: string };
++
++    expect(out.success).toBe(false);
++    expect(out.errorClass).toBe(ExecutionErrorType.USER);
++  });
++
++  it("blames Predge for a malformed body from the default host", async () => {
++    mockFetchCredentials.mockResolvedValue({});
++    respondWithBody("{}");
++
++    const out = (await readSignalStep({
++      wallet: WALLET,
++      integrationId: "int_1",
++    } as never)) as { success: boolean; errorClass: string };
++
++    expect(out.success).toBe(false);
++    expect(out.errorClass).toBe(ExecutionErrorType.EXTERNAL);
++  });
++
++  it("surfaces a wallet-required error before any fetch", async () => {
++    mockFetchCredentials.mockResolvedValue({});
++    const out = (await readSignalStep({
++      wallet: "   ",
++      integrationId: "int_1",
++    } as never)) as { success: boolean; error: string };
++
++    expect(out.success).toBe(false);
++    expect(out.error).toMatch(/wallet address is required/i);
++    expect(safeFetch).not.toHaveBeenCalled();
++  });
++
++  // The four reproductions from review, each run against the real step with the
++  // real verifier and a correctly signed envelope. The signature holds in every
++  // one of them: what fails is the shape of what it vouches for. Nothing is
++  // coerced, and the error names the field, what arrived and what was expected.
++  describe("payload shape, on a correctly signed envelope", () => {
++    const GOOD = {
++      wallet: WALLET,
++      conviction: 82,
++      action: "accumulate",
++      window: "30d",
++    };
++
++    it("rejects a conviction that is a numeric string", async () => {
++      await signedPayload({ ...GOOD, conviction: "99999" });
++      const out = await runStep();
++
++      // "99999" >= 80 coerces true in a template gate, so returning it at all
++      // is the bug; the step must not return it as a string or as a number.
++      expect(out.success).toBe(false);
++      expect(out.conviction).toBeUndefined();
++      expect(out.error).toMatch(/conviction/i);
++      expect(out.error).toMatch(/finite number in 0-100/i);
++      expect(out.error).toMatch(/string "99999"/);
++    });
++
++    it("rejects a missing conviction instead of succeeding without one", async () => {
++      const { conviction: _omitted, ...withoutConviction } = GOOD;
++      await signedPayload(withoutConviction);
++      const out = await runStep();
++
++      // The silent case: success with no conviction key renders empty in a
++      // template and never fires a `conviction < 30` branch.
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/conviction/i);
++      expect(out.error).toMatch(/missing/i);
++    });
++
++    it("rejects an action that is an object", async () => {
++      await signedPayload({ ...GOOD, action: { evil: 1 } });
++      const out = await runStep();
++
++      expect(out.success).toBe(false);
++      expect(out.action).toBeUndefined();
++      expect(out.error).toMatch(
++        /action must be one of accumulate, reduce, hold/i
++      );
++      expect(out.error).toMatch(/got object/i);
++    });
++
++    it("rejects a conviction below the documented range", async () => {
++      await signedPayload({ ...GOOD, conviction: -500 });
++      const out = await runStep();
++
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/conviction must be in 0-100/i);
++      expect(out.error).toMatch(/got number -500/);
++    });
++
++    it("rejects a conviction above the documented range", async () => {
++      await signedPayload({ ...GOOD, conviction: 101 });
++      const out = await runStep();
++
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/conviction must be in 0-100/i);
++    });
++
++    it("rejects a non-finite conviction", async () => {
++      // JSON has no NaN, so this arrives as null from a real host; either way it
++      // is not a number the gate can compare.
++      await signedPayload({ ...GOOD, conviction: null });
++      const out = await runStep();
++
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/conviction/i);
++      expect(out.error).toMatch(/got null/i);
++    });
++
++    it("rejects an unrecognised window", async () => {
++      await signedPayload({ ...GOOD, window: "90d" });
++      const out = await runStep();
++
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/window must be one of 7d, 30d/i);
++      expect(out.error).toMatch(/string "90d"/);
++    });
++
++    it("rejects an unrecognised action string", async () => {
++      await signedPayload({ ...GOOD, action: "liquidate" });
++      const out = await runStep();
++
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/action must be one of/i);
++    });
++
++    it("accepts the documented shape at both ends of the range", async () => {
++      for (const conviction of [0, 100]) {
++        await signedPayload({ ...GOOD, conviction });
++        const out = await runStep();
++        expect(out.success).toBe(true);
++        expect(out.conviction).toBe(conviction);
++      }
++    });
++
++    it("still passes a well-formed signed envelope through unchanged", async () => {
++      await signedPayload(GOOD);
++      const out = await runStep();
++
++      expect(out.success).toBe(true);
++      expect(out.conviction).toBe(82);
++      expect(typeof out.conviction).toBe("number");
++      expect(out.action).toBe("accumulate");
++      expect(out.window).toBe("30d");
++    });
++
++    it("blames Predge for a bad payload from the default host, the operator for their own", async () => {
++      await signedPayload({ ...GOOD, conviction: "99999" });
++      expect((await runStep()).errorClass).toBe(ExecutionErrorType.EXTERNAL);
++
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++        PREDGE_SIGNAL_URL: "https://signals.example.com",
++      });
++      expect((await runStep()).errorClass).toBe(ExecutionErrorType.USER);
++    });
++  });
++
++  // Domain separation. `resource` is signed and was never read, so the only
++  // thing telling a conviction signal apart from another attestation the same
++  // key signed about the same wallet was the payload's field names.
++  describe("resource binding", () => {
++    it("rejects another signed product about the same wallet", async () => {
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++      });
++      // A track-record envelope: same scheme, same key, same wallet, different
++      // product and different payload fields.
++      respondWith(
++        await signSignal(signer, {
++          resource: `track-record:${WALLET.toLowerCase()}`,
++          payload: {
++            wallet: WALLET,
++            conviction_score: 91,
++            verdict: "strong",
++          },
++          issuedAt: new Date().toISOString(),
++        })
++      );
++
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/track-record:/);
++      expect(out.error).toMatch(/expected "conviction:/);
++    });
++
++    it("rejects a conviction resource naming a different wallet", async () => {
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++      });
++      respondWith(
++        await signSignal(signer, {
++          resource: "conviction:0x000000000000000000000000000000000000dead",
++          issuedAt: new Date().toISOString(),
++        })
++      );
++
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/expected "conviction:/);
++    });
++
++    it("blames the operator for a foreign resource only when they repointed the host", async () => {
++      // A real Predge signature over another product is the same mistake as a
++      // body that was never a Predge response, one layer in, so it is filed on
++      // the same side of the fence.
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++      });
++      respondWith(
++        await signSignal(signer, {
++          resource: `track-record:${WALLET.toLowerCase()}`,
++          issuedAt: new Date().toISOString(),
++        })
++      );
++      expect((await runStep()).errorClass).toBe(ExecutionErrorType.EXTERNAL);
++
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNER_KEY_ID: signer.keyIdHex,
++        PREDGE_SIGNAL_URL: "https://signals.example.com",
++      });
++      expect((await runStep()).errorClass).toBe(ExecutionErrorType.USER);
++    });
++  });
++
++  // Every non-200 branch of fetchSignedSignal, which the suite used to leave
++  // unasserted: they did fail closed, nothing held them to it.
++  describe("non-200 responses", () => {
++    beforeEach(() => {
++      mockFetchCredentials.mockResolvedValue({});
++    });
++
++    it("reports a 404 as no signal for the wallet, blamed on the caller", async () => {
++      respondWithStatus(404, "Not Found");
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/no predge signal for this wallet/i);
++      expect(out.errorClass).toBe(ExecutionErrorType.USER);
++    });
++
++    it("reports a 402 as the wrong endpoint for this plugin", async () => {
++      respondWithStatus(402, "Payment Required");
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/requires payment/i);
++      expect(out.errorClass).toBe(ExecutionErrorType.USER);
++    });
++
++    it("treats a 429 as the upstream's, not the author's configuration", async () => {
++      respondWithStatus(429, "Too Many Requests");
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/rate limiting/i);
++      expect(out.errorClass).toBe(ExecutionErrorType.EXTERNAL);
++    });
++
++    it("surfaces a 500 as the upstream's", async () => {
++      respondWithStatus(500, "Internal Server Error");
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/HTTP 500/);
++      expect(out.errorClass).toBe(ExecutionErrorType.EXTERNAL);
++    });
++
++    it("surfaces an unexpected 4xx as the caller's", async () => {
++      respondWithStatus(418, "I'm a teapot");
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/HTTP 418/);
++      expect(out.errorClass).toBe(ExecutionErrorType.USER);
++    });
++
++    it("fails closed on a body that is not JSON", async () => {
++      respondWithBody("<html>proxy error</html>");
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/not valid JSON/i);
++    });
++
++    it("refuses an oversized body on its declared length, before reading it", async () => {
++      const text = vi.fn(() => Promise.resolve("{}"));
++      safeFetch.mockResolvedValue({
++        ok: true,
++        status: 200,
++        statusText: "OK",
++        headers: new Headers({ "content-length": String(10 * 1024 * 1024) }),
++        text,
++      });
++
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/over the .* byte limit/i);
++      expect(text).not.toHaveBeenCalled();
++    });
++
++    it("refuses an oversized body that did not declare its length", async () => {
++      respondWithBody("x".repeat(64 * 1024 + 1));
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/byte limit/i);
++    });
++
++    it("reports a blocked SSRF target as the operator's configuration", async () => {
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNAL_URL: "http://169.254.169.254",
++      });
++      const safeFetchModule = await import("@/lib/safe-fetch");
++      // The mock replaces SsrfBlockedError with a plain Error subclass, so its
++      // constructor takes a message where the real one takes a details object.
++      const MockSsrfBlockedError =
++        safeFetchModule.SsrfBlockedError as unknown as new (
++          message: string
++        ) => Error;
++      vi.mocked(safeFetchModule.assertUrlIsPublic).mockRejectedValueOnce(
++        new MockSsrfBlockedError("link-local address")
++      );
++
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/not allowed/i);
++      expect(out.errorClass).toBe(ExecutionErrorType.USER);
++      expect(safeFetch).not.toHaveBeenCalled();
++    });
++
++    it("blames the operator for a signal URL that does not parse", async () => {
++      mockFetchCredentials.mockResolvedValue({
++        PREDGE_SIGNAL_URL: "api.predge.io",
++      });
++
++      const out = await runStep();
++      expect(out.success).toBe(false);
++      expect(out.error).toMatch(/not a valid URL/i);
++      expect(out.errorClass).toBe(ExecutionErrorType.USER);
++      expect(safeFetch).not.toHaveBeenCalled();
++    });
++  });
++});
