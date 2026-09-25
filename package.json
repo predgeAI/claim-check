@@ -9,7 +9,9 @@
   "scripts": {
     "extract": "tsx src/run.ts",
     "verify": "tsx src/run-verify.ts",
-    "check": "tsx src/cli.ts --pr corpus/pr-2476.json --repo ."
+    "check": "tsx src/cli.ts --pr corpus/pr-2476.json --repo . --replay",
+    "check:live": "tsx src/cli.ts --pr corpus/pr-2476.json --repo .",
+    "check:live:3": "tsx src/cli.ts --pr corpus/pr-2476.json --repo . --concurrency 3"
   },
   "devDependencies": {
     "tsx": "^4.19.1",

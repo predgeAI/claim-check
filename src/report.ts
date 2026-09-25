@@ -84,6 +84,7 @@ function section(
 export function buildReport(
   results: MergedResult[],
   wallClockSeconds: number,
+  mode: string = "replay (stored verdicts)",
 ): string {
   const doesNotHold = results.filter((r) => r.verdict.verdict === "does-not-hold");
   const cannotTell  = results.filter((r) => r.verdict.verdict === "cannot-tell");
@@ -131,6 +132,8 @@ export function buildReport(
     `**Wall-clock seconds:** ${wallClockSeconds.toFixed(1)} · ` +
     `**Agrees with maintainer's written conclusions:** ${MAINTAINER_CONCLUSIONS}/${MAINTAINER_CONCLUSIONS}`,
   );
+  parts.push("");
+  parts.push(`**Verification mode:** ${mode}`);
   parts.push("");
   parts.push(
     "_A `holds` verdict means evidence was found in the diff, not that the code is correct._",
