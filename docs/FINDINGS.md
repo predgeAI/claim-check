@@ -37,7 +37,11 @@ published keyset. The tool marks c21 `holds` on the same grounds, citing the
 reviewer's written confirmation as corroborating evidence alongside the source
 constant in the diff.
 
-**Agreement score: 12/12 on the maintainer's explicitly written conclusions.**
+**Agreement: 14/14.** The final review's four named conclusions cover 14 of the 29
+claims, and the tool agrees on every one (computed in `src/report.ts`, not counted by
+hand). The rows above break those conclusions down and add per-claim conclusions from
+earlier rounds; the tool agrees with each. The other 15 claims were not addressed
+individually, and c02 is among them.
 
 ---
 
