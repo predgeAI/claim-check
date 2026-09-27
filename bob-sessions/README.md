@@ -1,11 +1,21 @@
 # Bob task session screenshots
 
-Submission requirement: a screenshot of the Bob task session summary from every team
-member has to live in this repository, not only in the submission form.
+Evidence that Claim Check was built and run inside IBM Bob IDE, as the
+hackathon rules require. Every screenshot is a real Bob task session, with the
+subagent prompt, its reasoning over the captured diff, and the Bobcoin cost.
 
-Naming: `<member>-<nn>-<what-the-session-did>.png`, for example
-`latcom-01-scaffold-extractor.png`.
+- **session-1.png** — the real executor (`src/execute.ts`) open in the Bob
+  editor, one verification task selected, and the task history: `Recent(46)`.
+- **session-2.png** — a subagent verifying the 64 KiB body-length claim: it
+  reads `corpus/pr-2476.diff`, cites lines 778, 779 and 788 and the comment at
+  295-303, and returns `partially`. Cost 0.111.
+- **session-3.png** — a subagent verifying subject binding, with its reasoning
+  and the final JSON verdict `{"verdict":"holds","evidence":"...:541", ...}`.
+- **session-4.png** — a subagent verifying claim c01 (the signal fetch),
+  verdict `holds`, cost 0.048; the task list shows the per-task costs.
+- **session-5.png** — the full working environment: Bob IDE with the 46-task
+  history, the live review app, and the terminal.
 
-One screenshot per meaningful session, in the order the work happened. Each one should
-show the task summary Bob produces at the end of a session, so that a judge can read
-what was asked and what Bob did.
+Budget: the run exhausted the 40-Bobcoin allowance (visible as "Budget
+Exceeded" in several shots), which is why the demo runs in `--replay` from the
+stored verdicts.
