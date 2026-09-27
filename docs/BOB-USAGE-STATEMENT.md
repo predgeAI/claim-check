@@ -20,15 +20,15 @@ Each returned one of three verdicts with `file:line` evidence, and we instructed
 **Session 3 — whole-repository context.** Bob assembled the report, ordering it by what
 should stop a merge rather than by claim number, and wrote the CLI.
 
+**Session 4 — adversarial self-test.** We asked Bob to compare its own output against the
+maintainer's hand-written conclusions in the same thread, and to record every disagreement,
+including where the tool is wrong.
+
 **Session 5 — a live executor.** Sessions 1 to 4 froze the 29 verdicts into TypeScript, so
 the tool reported a sub-0.1-second wall-clock that only measured formatting. Rather than
 publish that with a footnote, we had Bob write `src/execute.ts`, which spawns one `bob run`
 subprocess per claim over Bob Shell and produces the verdicts for real; `--replay` still
 serves the stored run when no budget remains.
-
-**Session 4 — adversarial self-test.** We asked Bob to compare its own output against the
-maintainer's hand-written conclusions in the same thread, and to record every disagreement,
-including where the tool is wrong.
 
 **What it found.** Of 29 claims, 28 held and one did not. The failing claim was ours: the
 description said every outbound request passes through an always-on SSRF guard, and Bob
