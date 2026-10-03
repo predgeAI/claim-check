@@ -1,6 +1,6 @@
 # Claim Check — does this PR do what it says?
 
-IBM Bob 2.0 Hackathon, 25–27 Sep 2026. Team: Predge (Latcom, #15722, Approved).
+IBM Bob 2.0 Hackathon, 25–27 Sep 2026. Team: Predge (#15722, Approved).
 
 ## The problem, from a real review this week
 
